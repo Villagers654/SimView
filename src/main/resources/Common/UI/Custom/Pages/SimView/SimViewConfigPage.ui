@@ -1,0 +1,439 @@
+$C = "../../Common.ui";
+
+@CustomStyle = TextButtonStyle(
+  Default: (Background: $C.@DefaultSquareButtonDefaultBackground, LabelStyle: $C.@DefaultButtonLabelStyle),
+  Hovered: (Background: $C.@DefaultSquareButtonHoveredBackground, LabelStyle: $C.@DefaultButtonLabelStyle),
+  Pressed: (Background: $C.@DefaultSquareButtonPressedBackground, LabelStyle: $C.@DefaultButtonLabelStyle),
+  Disabled: (Background: $C.@DefaultSquareButtonDisabledBackground, LabelStyle: $C.@DefaultButtonDisabledLabelStyle),
+  Sounds: $C.@ButtonSounds,
+);
+
+$C.@PageOverlay {
+  $C.@DecoratedContainer {
+    Anchor: (Width: 860, Height: 740);
+
+    #Title {
+      Group {
+        $C.@Title {
+          @Text = "SimView";
+        }
+
+        $C.@HeaderSearch {}
+      }
+    }
+
+    #Content {
+      LayoutMode: Left;
+
+      Group {
+        LayoutMode: Top;
+        Anchor: (Width: 420, Right: 8);
+
+        Label {
+          Text: "Settings";
+          Style: (
+            FontSize: 18,
+            TextColor: #93844c,
+            RenderBold: true
+          );
+        }
+
+        $C.@TextButton #AdvancedToggleButton {
+          Anchor: (Width: 150, Height: 24, Top: 5);
+          Text: "Advanced: OFF";
+        }
+
+        Group #IndexList {
+          Anchor: (Width: 410, Height: 610, Top: 6);
+          LayoutMode: TopScrolling;
+          ScrollbarStyle: $C.@DefaultScrollbarStyle;
+
+          Group #IndexCards {
+            LayoutMode: Top;
+          }
+        }
+
+        Label #NoResultsLabel {
+          Visible: false;
+          Text: "No settings matched your search.";
+          Style: (
+            FontSize: 14,
+            TextColor: #ad2828,
+            RenderBold: true
+          );
+        }
+      }
+
+      Group {
+        LayoutMode: Top;
+        Anchor: (Width: 410);
+
+        Label {
+          Text: "Editor";
+          Style: (
+            FontSize: 18,
+            TextColor: #93844c,
+            RenderBold: true
+          );
+        }
+
+        Group #EditorScroll {
+          Anchor: (Width: 410, Height: 640, Top: 6);
+          LayoutMode: TopScrolling;
+          ScrollbarStyle: $C.@DefaultScrollbarStyle;
+
+          Group {
+            LayoutMode: Top;
+
+            Group {
+              LayoutMode: Top;
+              Background: $C.@InputBoxBackground;
+              Anchor: (Top: 8);
+              Padding: (Left: 10, Right: 10, Top: 8, Bottom: 8);
+
+              Label #SelectedSetting {
+                Text: "";
+                Style: (
+                  FontSize: 16,
+                  TextColor: #ffffff,
+                  RenderBold: true
+                );
+              }
+
+              Label #SelectedDescription {
+                Text: "";
+                Style: (
+                  FontSize: 12,
+                  TextColor: #ffffff(0.7),
+                  RenderBold: false
+                );
+                Anchor: (Top: 4, Bottom: 6);
+              }
+
+              $C.@CheckBoxWithLabel #BooleanEditor {
+                @Text = "Enabled";
+                Visible: false;
+                Padding: (Top: 4, Bottom: 4);
+              }
+
+              Group #TextEditorGroup {
+                Visible: false;
+                LayoutMode: Top;
+
+                Label {
+                  Text: "Value";
+                  Style: (
+                    FontSize: 13,
+                    TextColor: #93844c,
+                    RenderBold: true
+                  );
+                }
+
+                $C.@TextField #TextEditor {
+                  Anchor: (Height: 28, Top: 4);
+                  Style: (
+                    FontSize: 14,
+                    TextColor: #ffffff(0.85)
+                  );
+                }
+              }
+
+              Group #EnumEditorGroup {
+                Visible: false;
+                LayoutMode: Top;
+
+                Label {
+                  Text: "Mode";
+                  Style: (
+                    FontSize: 13,
+                    TextColor: #93844c,
+                    RenderBold: true
+                  );
+                }
+
+                $C.@DropdownBox #EnumEditor {
+                  Anchor: (Height: 24, Top: 4);
+                }
+              }
+
+              Label #ApplyState {
+                Text: "";
+                Style: (
+                  FontSize: 12,
+                  TextColor: #bfcdd5,
+                  RenderBold: false
+                );
+                Anchor: (Top: 8);
+              }
+
+              $C.@TextButton #ApplyButton {
+                Anchor: (Width: 120, Height: 24, Top: 6);
+                Text: "Apply";
+              }
+            }
+
+            Group #RuntimeInfo {
+              LayoutMode: Top;
+              Background: $C.@InputBoxBackground;
+              Padding: (Left: 10, Right: 10, Top: 8, Bottom: 8);
+              Anchor: (Top: 10);
+
+              Label {
+                Text: "Runtime Caps";
+                Style: (
+                  FontSize: 14,
+                  TextColor: #93844c,
+                  RenderBold: true
+                );
+              }
+
+              Group {
+                LayoutMode: Left;
+                Anchor: (Top: 4);
+
+                Label {
+                  Text: "Simulation (chunks):";
+                  Style: (FontSize: 12, TextColor: #ffffff(0.75));
+                }
+                Label #RuntimeSimulationDistance {
+                  Text: "";
+                  Style: (FontSize: 12, TextColor: #ffffff, RenderBold: true);
+                  Anchor: (Left: 6);
+                }
+              }
+
+              Group {
+                LayoutMode: Left;
+                Anchor: (Top: 3);
+
+                Label {
+                  Text: "View (chunks):";
+                  Style: (FontSize: 12, TextColor: #ffffff(0.75));
+                }
+                Label #RuntimeViewDistance {
+                  Text: "";
+                  Style: (FontSize: 12, TextColor: #ffffff, RenderBold: true);
+                  Anchor: (Left: 6);
+                }
+              }
+            }
+
+            Group #StatusInfo {
+              LayoutMode: Top;
+              Background: $C.@InputBoxBackground;
+              Padding: (Left: 10, Right: 10, Top: 8, Bottom: 8);
+              Anchor: (Top: 10);
+
+          Label {
+            Text: "Status Snapshot";
+            Style: (
+              FontSize: 14,
+              TextColor: #93844c,
+              RenderBold: true
+            );
+          }
+
+          Group {
+            LayoutMode: Left;
+            Anchor: (Top: 4);
+            Label {
+              Text: "SimView:";
+              Style: (FontSize: 12, TextColor: #ffffff(0.75));
+            }
+            Label #StatusEnabled {
+              Text: "";
+              Style: (FontSize: 12, TextColor: #ffffff, RenderBold: true);
+              Anchor: (Left: 6);
+            }
+          }
+
+              Group {
+            LayoutMode: Left;
+            Anchor: (Top: 3);
+            Label {
+              Text: "Configured simulation (Hytale):";
+              Style: (FontSize: 12, TextColor: #ffffff(0.75));
+            }
+            Label #StatusConfiguredSimulationDistance {
+              Text: "";
+              Style: (FontSize: 12, TextColor: #ffffff, RenderBold: true);
+              Anchor: (Left: 6);
+            }
+          }
+
+          Group {
+            LayoutMode: Left;
+            Anchor: (Top: 3);
+            Label {
+              Text: "Active simulation (Hytale):";
+              Style: (FontSize: 12, TextColor: #ffffff(0.75));
+            }
+            Label #StatusActiveSimulationDistance {
+              Text: "";
+              Style: (FontSize: 12, TextColor: #ffffff, RenderBold: true);
+              Anchor: (Left: 6);
+            }
+          }
+
+          Group {
+            LayoutMode: Left;
+            Anchor: (Top: 3);
+            Label {
+              Text: "Configured sim target:";
+              Style: (FontSize: 12, TextColor: #ffffff(0.75));
+            }
+            Label #StatusConfiguredSimulationTarget {
+              Text: "";
+              Style: (FontSize: 12, TextColor: #ffffff, RenderBold: true);
+              Anchor: (Left: 6);
+            }
+          }
+
+          Group {
+            LayoutMode: Left;
+            Anchor: (Top: 3);
+            Label {
+              Text: "Active sim target:";
+              Style: (FontSize: 12, TextColor: #ffffff(0.75));
+            }
+            Label #StatusActiveSimulationTarget {
+              Text: "";
+              Style: (FontSize: 12, TextColor: #ffffff, RenderBold: true);
+              Anchor: (Left: 6);
+            }
+          }
+
+          Group {
+            LayoutMode: Left;
+            Anchor: (Top: 3);
+            Label {
+              Text: "Configured view target:";
+              Style: (FontSize: 12, TextColor: #ffffff(0.75));
+            }
+            Label #StatusConfiguredViewTarget {
+              Text: "";
+              Style: (FontSize: 12, TextColor: #ffffff, RenderBold: true);
+              Anchor: (Left: 6);
+            }
+          }
+
+          Group {
+            LayoutMode: Left;
+            Anchor: (Top: 3);
+            Label {
+              Text: "Active view target:";
+              Style: (FontSize: 12, TextColor: #ffffff(0.75));
+            }
+            Label #StatusActiveViewTarget {
+              Text: "";
+              Style: (FontSize: 12, TextColor: #ffffff, RenderBold: true);
+              Anchor: (Left: 6);
+            }
+          }
+
+          Group {
+            LayoutMode: Left;
+            Anchor: (Top: 3);
+            Label {
+              Text: "View mode:";
+              Style: (FontSize: 12, TextColor: #ffffff(0.75));
+            }
+            Label #StatusViewMode {
+              Text: "";
+              Style: (FontSize: 12, TextColor: #ffffff, RenderBold: true);
+              Anchor: (Left: 6);
+            }
+          }
+
+          Group {
+            LayoutMode: Left;
+            Anchor: (Top: 3);
+            Label {
+              Text: "Simulation mode:";
+              Style: (FontSize: 12, TextColor: #ffffff(0.75));
+            }
+            Label #StatusSimulationMode {
+              Text: "";
+              Style: (FontSize: 12, TextColor: #ffffff, RenderBold: true);
+              Anchor: (Left: 6);
+            }
+          }
+
+          Group {
+            LayoutMode: Left;
+            Anchor: (Top: 3);
+            Label {
+              Text: "MSPT:";
+              Style: (FontSize: 12, TextColor: #ffffff(0.75));
+            }
+            Label #StatusMspt {
+              Text: "";
+              Style: (FontSize: 12, TextColor: #ffffff, RenderBold: true);
+              Anchor: (Left: 6);
+            }
+          }
+
+          Group {
+            LayoutMode: Left;
+            Anchor: (Top: 3);
+            Label {
+              Text: "Cold chunks (current/target):";
+              Style: (FontSize: 12, TextColor: #ffffff(0.75));
+            }
+            Label #StatusColdChunks {
+              Text: "";
+              Style: (FontSize: 12, TextColor: #ffffff, RenderBold: true);
+              Anchor: (Left: 6);
+            }
+          }
+
+          Group {
+            LayoutMode: Left;
+            Anchor: (Top: 3);
+            Label {
+              Text: "Ticking chunks (current/target):";
+              Style: (FontSize: 12, TextColor: #ffffff(0.75));
+            }
+            Label #StatusTickingChunks {
+              Text: "";
+              Style: (FontSize: 12, TextColor: #ffffff, RenderBold: true);
+              Anchor: (Left: 6);
+            }
+          }
+
+          Group {
+            LayoutMode: Left;
+            Anchor: (Top: 3);
+            Label {
+              Text: "View checks (+/-):";
+              Style: (FontSize: 12, TextColor: #ffffff(0.75));
+            }
+            Label #StatusViewChecks {
+              Text: "";
+              Style: (FontSize: 12, TextColor: #ffffff, RenderBold: true);
+              Anchor: (Left: 6);
+            }
+          }
+
+          Group {
+            LayoutMode: Left;
+            Anchor: (Top: 3);
+            Label {
+              Text: "Simulation checks (+/-):";
+              Style: (FontSize: 12, TextColor: #ffffff(0.75));
+            }
+            Label #StatusSimulationChecks {
+              Text: "";
+              Style: (FontSize: 12, TextColor: #ffffff, RenderBold: true);
+              Anchor: (Left: 6);
+            }
+          }
+            }
+        }
+      }
+    }
+  }
+}
+}
+
+$C.@BackButton {}

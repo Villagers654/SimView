@@ -16,5 +16,5 @@
   "OptionalDependencies": {},
   "DisabledByDefault": false,
   "Main": "club.simview.simview.SimView",
-  "IncludesAssetPack": false
+  "IncludesAssetPack": true
 }

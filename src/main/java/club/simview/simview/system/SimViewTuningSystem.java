@@ -36,6 +36,8 @@ public final class SimViewTuningSystem extends EntityTickingSystem<EntityStore> 
   private final SimViewDistanceService distanceService;
   private final SimViewColdChunkStreamer coldChunkStreamer;
   private final ConcurrentHashMap<UUID, Integer> advertisedViewDistanceBlocks = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<UUID, Integer> preferredRequestedViewDistanceChunks =
+      new ConcurrentHashMap<>();
 
   public SimViewTuningSystem(SimViewDistanceService distanceService, SimViewColdChunkStreamer coldChunkStreamer) {
     this.distanceService = distanceService;
@@ -72,15 +74,19 @@ public final class SimViewTuningSystem extends EntityTickingSystem<EntityStore> 
     TransformComponent transformComponent = chunk.getComponent(index, TRANSFORM_COMPONENT_TYPE);
     World world = store.getExternalData().getWorld();
 
-    int requestedViewDistance = player.getClientViewRadius();
-    int serverLimitedViewDistance = player.getViewRadius();
+    int rawRequestedViewDistance = Math.max(0, player.getClientViewRadius());
+    int serverLimitedViewDistance = Math.max(0, player.getViewRadius());
     int activeSimulationTarget = distanceService.activeTargetSimulationDistanceChunks();
     int activeViewTarget = distanceService.activeTargetViewDistanceChunks();
     int activeSimulationDistance =
         config.simulationDistanceCap(distanceService.hytaleSimulationDistanceChunks(), activeSimulationTarget);
+    int requestedViewDistance =
+        resolveRequestedViewDistance(
+            playerRef.getUuid(), rawRequestedViewDistance, activeSimulationDistance, activeViewTarget);
     int effectiveViewDistance =
         config.effectiveExtendedViewDistance(activeSimulationDistance, requestedViewDistance, activeViewTarget);
-    int effectiveSimulationDistance = config.effectiveSimulationDistance(activeSimulationDistance, requestedViewDistance);
+    int effectiveSimulationDistance =
+        config.effectiveSimulationDistance(activeSimulationDistance, requestedViewDistance);
 
     distanceService.observePlayerTick(
         playerRef.getUuid(),
@@ -179,9 +185,42 @@ public final class SimViewTuningSystem extends EntityTickingSystem<EntityStore> 
     return viewRadiusBlocks > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) viewRadiusBlocks;
   }
 
+  private int resolveRequestedViewDistance(
+      UUID playerUuid,
+      int rawRequestedViewDistance,
+      int activeSimulationDistance,
+      int activeViewTarget) {
+    if (playerUuid == null) {
+      return Math.max(0, rawRequestedViewDistance);
+    }
+
+    int rawRequested = Math.max(0, rawRequestedViewDistance);
+    int simulationDistance = Math.max(0, activeSimulationDistance);
+
+    // Runtime simulation-cap updates can temporarily force the reported client radius down to the
+    // hot radius. Keep the last known preferred radius unless the player explicitly picks a lower
+    // value that still sits above the simulation distance.
+    return preferredRequestedViewDistanceChunks.compute(
+        playerUuid,
+        (uuid, previous) -> {
+          if (previous == null || rawRequested >= previous) {
+            return rawRequested;
+          }
+          if (rawRequested > simulationDistance) {
+            return rawRequested;
+          }
+          if (activeViewTarget <= simulationDistance) {
+            return rawRequested;
+          }
+          return previous;
+        });
+  }
+
   private boolean advertiseViewDistance(PlayerRef playerRef, int viewRadiusChunks) {
     if (!playerRef.isValid()) {
-      advertisedViewDistanceBlocks.remove(playerRef.getUuid());
+      UUID playerUuid = playerRef.getUuid();
+      advertisedViewDistanceBlocks.remove(playerUuid);
+      preferredRequestedViewDistanceChunks.remove(playerUuid);
       return false;
     }
 

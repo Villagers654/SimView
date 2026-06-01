@@ -30,6 +30,7 @@ On startup, SimView creates:
 {
   "core": {
     "enabled": true,
+    "gui-enabled": true,
     "target": {
       "view-distance-chunks": 32,
       "simulation-distance-chunks": 32
@@ -100,6 +101,7 @@ On startup, SimView creates:
 
 - `core.target.view-distance-chunks`: desired SimView view distance.
 - `core.target.simulation-distance-chunks`: desired simulation distance (what Hytale runtime view cap is set to).
+- `core.gui-enabled`: toggles the `/simview` GUI command.
 - `core.limits.minimum|maximum.*`: clamp ranges for view and simulation targets.
 - `auto-adjustment.mode.view|simulation`: auto mode per target (`off`, `proactive`, `reactive`, `mixed`).
 - `auto-adjustment.cadence.*`: shared startup delay and check interval.
@@ -162,7 +164,10 @@ Both auto modes also use consecutive-check gating before a change applies:
 
 - `/simview`
   - Permission group: `hytale:None`
-  - Shows current effective distances, budgets, and both auto-tuner states.
+  - Opens the full SimView GUI.
+  - On dedicated servers: requires admin permissions.
+  - On singleplayer worlds: owner can always open it.
+  - GUI edits save config and auto-reload SimView immediately.
 - `/simviewreload`
   - Permission group: `hytale:Admin`
   - Reloads `simview.json`, reapplies caps, and resets tuner state.

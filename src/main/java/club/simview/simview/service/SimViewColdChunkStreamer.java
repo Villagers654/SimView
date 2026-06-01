@@ -130,6 +130,7 @@ public final class SimViewColdChunkStreamer {
     private final LongOpenHashSet loading = new LongOpenHashSet();
     private final LongOpenHashSet coveredByHot = new LongOpenHashSet();
     private final LongOpenHashSet resend = new LongOpenHashSet();
+    private final LongOpenHashSet pendingRetry = new LongOpenHashSet();
     private final CircleSpiralIterator iterator = new CircleSpiralIterator();
     private UUID worldUuid;
     private int centerX;
@@ -227,6 +228,22 @@ public final class SimViewColdChunkStreamer {
       int remaining = Math.min(perTickBudget, maxLoadsInFlight - loading.size());
       remaining =
           enqueueResends(
+              pendingRetry,
+              world,
+              playerRef,
+              chunkX,
+              chunkZ,
+              innerRadius,
+              outerRadius,
+              remaining,
+              generateMissingColdChunks);
+      if (remaining <= 0 || loading.size() >= maxLoadsInFlight) {
+        return;
+      }
+
+      remaining =
+          enqueueResends(
+              resend,
               world,
               playerRef,
               chunkX,
@@ -263,6 +280,7 @@ public final class SimViewColdChunkStreamer {
     }
 
     private int enqueueResends(
+        LongOpenHashSet queue,
         World world,
         PlayerRef playerRef,
         int chunkX,
@@ -273,7 +291,7 @@ public final class SimViewColdChunkStreamer {
         boolean generateMissingColdChunks) {
       int innerRadiusSquared = innerRadius * innerRadius;
       int outerRadiusSquared = outerRadius * outerRadius;
-      LongIterator iterator = resend.iterator();
+      LongIterator iterator = queue.iterator();
       while (remaining > 0 && iterator.hasNext()) {
         long chunkIndex = iterator.nextLong();
         int distanceSquared = distanceSquared(chunkX, chunkZ, chunkIndex);
@@ -300,6 +318,7 @@ public final class SimViewColdChunkStreamer {
         loading.clear();
         coveredByHot.clear();
         resend.clear();
+        pendingRetry.clear();
         resetTransientState();
         return;
       }
@@ -311,6 +330,7 @@ public final class SimViewColdChunkStreamer {
       loading.clear();
       coveredByHot.clear();
       resend.clear();
+      pendingRetry.clear();
       resetTransientState();
     }
 
@@ -378,6 +398,7 @@ public final class SimViewColdChunkStreamer {
         long chunkIndex = loadingIterator.nextLong();
         int distanceSquared = distanceSquared(centerX, centerZ, chunkIndex);
         if (distanceSquared <= innerRadiusSquared || distanceSquared > outerRadiusSquared) {
+          pendingRetry.add(chunkIndex);
           loadingIterator.remove();
         }
       }

@@ -79,6 +79,14 @@ public final class SimViewDistanceService {
     return config;
   }
 
+  public SimViewConfig saveAndReload(SimViewConfig updatedConfig) {
+    SimViewConfig config = configStore.saveAndReload(updatedConfig);
+    autoTuner.clear();
+    autoTuner.updateConfig(config);
+    applyServerViewDistanceCap();
+    return config;
+  }
+
   private void setRuntimeMaxViewRadius(int maxViewRadius) {
     int clampedMaxViewRadius = Math.max(0, maxViewRadius);
     if (serverConfig.getMaxViewRadius() == clampedMaxViewRadius) {

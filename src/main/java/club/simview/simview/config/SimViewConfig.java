@@ -10,6 +10,7 @@ import java.util.regex.Pattern;
 
 public record SimViewConfig(
     boolean enabled,
+    boolean guiEnabled,
     int targetViewDistanceChunks,
     int targetSimulationDistanceChunks,
     SimViewAdjustmentMode adjustmentMode,
@@ -47,6 +48,7 @@ public record SimViewConfig(
   public static SimViewConfig defaults() {
     int runtimeHytaleViewDistance = Math.max(0, HytaleServer.get().getConfig().getMaxViewRadius());
     return new SimViewConfig(
+        true,
         true,
         32,
         runtimeHytaleViewDistance,
@@ -102,6 +104,17 @@ public record SimViewConfig(
     }
 
     return defaults;
+  }
+
+  public static void save(Path dataDirectory, SimViewConfig config) {
+    Path configDirectory = dataDirectory.resolve("config");
+    Path configFile = configDirectory.resolve(CONFIG_FILE);
+    try {
+      Files.createDirectories(configDirectory);
+      Files.writeString(configFile, renderJson(config), StandardCharsets.UTF_8);
+    } catch (IOException exception) {
+      throw new IllegalStateException("Unable to save SimView config to " + configFile, exception);
+    }
   }
 
   public int clampedTargetSimulationDistanceChunks(
@@ -173,81 +186,85 @@ public record SimViewConfig(
   }
 
   private static void writeDefaults(Path configFile, SimViewConfig defaults) throws IOException {
+    Files.writeString(configFile, renderJson(defaults), StandardCharsets.UTF_8);
+  }
+
+  private static String renderJson(SimViewConfig config) {
     String lineSeparator = System.lineSeparator();
     StringBuilder text = new StringBuilder();
     appendObjectStart(text, lineSeparator, 0, "");
     appendObjectStart(text, lineSeparator, 1, "core");
-    appendBoolean(text, lineSeparator, 2, "enabled", defaults.enabled(), true);
+    appendBoolean(text, lineSeparator, 2, "enabled", config.enabled(), true);
+    appendBoolean(text, lineSeparator, 2, "gui-enabled", config.guiEnabled(), true);
     appendObjectStart(text, lineSeparator, 2, "target");
-    appendNumber(text, lineSeparator, 3, "view-distance-chunks", defaults.targetViewDistanceChunks(), true);
-    appendNumber(text, lineSeparator, 3, "simulation-distance-chunks", defaults.targetSimulationDistanceChunks(), false);
+    appendNumber(text, lineSeparator, 3, "view-distance-chunks", config.targetViewDistanceChunks(), true);
+    appendNumber(text, lineSeparator, 3, "simulation-distance-chunks", config.targetSimulationDistanceChunks(), false);
     appendObjectEnd(text, lineSeparator, 2, true);
     appendObjectStart(text, lineSeparator, 2, "limits");
     appendObjectStart(text, lineSeparator, 3, "minimum");
-    appendNumber(text, lineSeparator, 4, "view-distance-chunks", defaults.minimumTargetViewDistanceChunks(), true);
-    appendNumber(text, lineSeparator, 4, "simulation-distance-chunks", defaults.minimumTargetSimulationDistanceChunks(), false);
+    appendNumber(text, lineSeparator, 4, "view-distance-chunks", config.minimumTargetViewDistanceChunks(), true);
+    appendNumber(text, lineSeparator, 4, "simulation-distance-chunks", config.minimumTargetSimulationDistanceChunks(), false);
     appendObjectEnd(text, lineSeparator, 3, true);
     appendObjectStart(text, lineSeparator, 3, "maximum");
-    appendNumber(text, lineSeparator, 4, "view-distance-chunks", defaults.maximumTargetViewDistanceChunks(), true);
-    appendNumber(text, lineSeparator, 4, "simulation-distance-chunks", defaults.maximumTargetSimulationDistanceChunks(), false);
+    appendNumber(text, lineSeparator, 4, "view-distance-chunks", config.maximumTargetViewDistanceChunks(), true);
+    appendNumber(text, lineSeparator, 4, "simulation-distance-chunks", config.maximumTargetSimulationDistanceChunks(), false);
     appendObjectEnd(text, lineSeparator, 3, false);
     appendObjectEnd(text, lineSeparator, 2, false);
     appendObjectEnd(text, lineSeparator, 1, true);
 
     appendObjectStart(text, lineSeparator, 1, "auto-adjustment");
     appendObjectStart(text, lineSeparator, 2, "mode");
-    appendString(text, lineSeparator, 3, "view", defaults.adjustmentMode().name().toLowerCase(), true);
-    appendString(text, lineSeparator, 3, "simulation", defaults.simulationAdjustmentMode().name().toLowerCase(), false);
+    appendString(text, lineSeparator, 3, "view", config.adjustmentMode().name().toLowerCase(), true);
+    appendString(text, lineSeparator, 3, "simulation", config.simulationAdjustmentMode().name().toLowerCase(), false);
     appendObjectEnd(text, lineSeparator, 2, true);
     appendObjectStart(text, lineSeparator, 2, "cadence");
-    appendNumber(text, lineSeparator, 3, "ticks-per-check", defaults.adjustmentTicksPerCheck(), true);
-    appendNumber(text, lineSeparator, 3, "startup-delay-ticks", defaults.adjustmentStartupDelayTicks(), false);
+    appendNumber(text, lineSeparator, 3, "ticks-per-check", config.adjustmentTicksPerCheck(), true);
+    appendNumber(text, lineSeparator, 3, "startup-delay-ticks", config.adjustmentStartupDelayTicks(), false);
     appendObjectEnd(text, lineSeparator, 2, true);
     appendObjectStart(text, lineSeparator, 2, "checks");
     appendObjectStart(text, lineSeparator, 3, "view");
-    appendNumber(text, lineSeparator, 4, "for-increase", defaults.adjustmentPassedChecksForIncrease(), true);
-    appendNumber(text, lineSeparator, 4, "for-decrease", defaults.adjustmentPassedChecksForDecrease(), false);
+    appendNumber(text, lineSeparator, 4, "for-increase", config.adjustmentPassedChecksForIncrease(), true);
+    appendNumber(text, lineSeparator, 4, "for-decrease", config.adjustmentPassedChecksForDecrease(), false);
     appendObjectEnd(text, lineSeparator, 3, true);
     appendObjectStart(text, lineSeparator, 3, "simulation");
-    appendNumber(text, lineSeparator, 4, "for-increase", defaults.simulationAdjustmentPassedChecksForIncrease(), true);
-    appendNumber(text, lineSeparator, 4, "for-decrease", defaults.simulationAdjustmentPassedChecksForDecrease(), false);
+    appendNumber(text, lineSeparator, 4, "for-increase", config.simulationAdjustmentPassedChecksForIncrease(), true);
+    appendNumber(text, lineSeparator, 4, "for-decrease", config.simulationAdjustmentPassedChecksForDecrease(), false);
     appendObjectEnd(text, lineSeparator, 3, false);
     appendObjectEnd(text, lineSeparator, 2, true);
     appendObjectStart(text, lineSeparator, 2, "proactive");
-    appendNumber(text, lineSeparator, 3, "global-cold-chunk-count-target", defaults.proactiveGlobalColdChunkCountTarget(), true);
-    appendNumber(text, lineSeparator, 3, "global-ticking-chunk-count-target", defaults.proactiveGlobalTickingChunkCountTarget(), false);
+    appendNumber(text, lineSeparator, 3, "global-cold-chunk-count-target", config.proactiveGlobalColdChunkCountTarget(), true);
+    appendNumber(text, lineSeparator, 3, "global-ticking-chunk-count-target", config.proactiveGlobalTickingChunkCountTarget(), false);
     appendObjectEnd(text, lineSeparator, 2, true);
     appendObjectStart(text, lineSeparator, 2, "reactive");
-    appendNumber(text, lineSeparator, 3, "increase-mspt-threshold", defaults.reactiveIncreaseMsptThreshold(), true);
-    appendNumber(text, lineSeparator, 3, "decrease-mspt-threshold", defaults.reactiveDecreaseMsptThreshold(), true);
-    appendNumber(text, lineSeparator, 3, "mspt-collection-period-ticks", defaults.reactiveMsptCollectionPeriodTicks(), true);
-    appendBoolean(text, lineSeparator, 3, "use-mspt-prediction", defaults.reactiveUseMsptPrediction(), true);
-    appendNumber(text, lineSeparator, 3, "mspt-prediction-history-minutes", defaults.reactiveMsptPredictionHistoryMinutes(), false);
+    appendNumber(text, lineSeparator, 3, "increase-mspt-threshold", config.reactiveIncreaseMsptThreshold(), true);
+    appendNumber(text, lineSeparator, 3, "decrease-mspt-threshold", config.reactiveDecreaseMsptThreshold(), true);
+    appendNumber(text, lineSeparator, 3, "mspt-collection-period-ticks", config.reactiveMsptCollectionPeriodTicks(), true);
+    appendBoolean(text, lineSeparator, 3, "use-mspt-prediction", config.reactiveUseMsptPrediction(), true);
+    appendNumber(text, lineSeparator, 3, "mspt-prediction-history-minutes", config.reactiveMsptPredictionHistoryMinutes(), false);
     appendObjectEnd(text, lineSeparator, 2, false);
     appendObjectEnd(text, lineSeparator, 1, true);
 
     appendObjectStart(text, lineSeparator, 1, "cold-chunk-streaming");
-    appendBoolean(text, lineSeparator, 2, "generate-missing", defaults.generateMissingColdChunks(), true);
-    appendBoolean(text, lineSeparator, 2, "despawn-entities", defaults.despawnEntitiesInColdChunks(), true);
+    appendBoolean(text, lineSeparator, 2, "generate-missing", config.generateMissingColdChunks(), true);
+    appendBoolean(text, lineSeparator, 2, "despawn-entities", config.despawnEntitiesInColdChunks(), true);
     appendObjectStart(text, lineSeparator, 2, "budget");
-    appendNumber(text, lineSeparator, 3, "chunk-sends-per-second", defaults.maxChunkSendsPerSecond(), true);
-    appendNumber(text, lineSeparator, 3, "chunk-sends-per-tick", defaults.maxChunkSendsPerTick(), true);
-    appendNumber(text, lineSeparator, 3, "cold-chunk-loads-in-flight", defaults.maxColdChunkLoadsInFlight(), false);
+    appendNumber(text, lineSeparator, 3, "chunk-sends-per-second", config.maxChunkSendsPerSecond(), true);
+    appendNumber(text, lineSeparator, 3, "chunk-sends-per-tick", config.maxChunkSendsPerTick(), true);
+    appendNumber(text, lineSeparator, 3, "cold-chunk-loads-in-flight", config.maxColdChunkLoadsInFlight(), false);
     appendObjectEnd(text, lineSeparator, 2, false);
     appendObjectEnd(text, lineSeparator, 1, true);
 
     appendObjectStart(text, lineSeparator, 1, "speeding-adjustments");
-    appendNumber(text, lineSeparator, 2, "not-send-blocks-per-tick", defaults.speedingNotSendBlocksPerTick(), true);
-    appendNumber(text, lineSeparator, 2, "cooldown-ticks", defaults.speedingCooldownTicks(), true);
+    appendNumber(text, lineSeparator, 2, "not-send-blocks-per-tick", config.speedingNotSendBlocksPerTick(), true);
+    appendNumber(text, lineSeparator, 2, "cooldown-ticks", config.speedingCooldownTicks(), true);
     appendObjectStart(text, lineSeparator, 2, "budget");
-    appendNumber(text, lineSeparator, 3, "chunk-sends-per-second", defaults.speedingChunkSendsPerSecond(), true);
-    appendNumber(text, lineSeparator, 3, "chunk-sends-per-tick", defaults.speedingChunkSendsPerTick(), false);
+    appendNumber(text, lineSeparator, 3, "chunk-sends-per-second", config.speedingChunkSendsPerSecond(), true);
+    appendNumber(text, lineSeparator, 3, "chunk-sends-per-tick", config.speedingChunkSendsPerTick(), false);
     appendObjectEnd(text, lineSeparator, 2, false);
     appendObjectEnd(text, lineSeparator, 1, false);
 
     text.append("}").append(lineSeparator);
-
-    Files.writeString(configFile, text.toString(), StandardCharsets.UTF_8);
+    return text.toString();
   }
 
   private static SimViewConfig fromJson(String json, SimViewConfig defaults) {
@@ -273,6 +290,7 @@ public record SimViewConfig(
     String speedingBudget = jsonSection(speeding, "budget");
 
     boolean enabled = jsonBool(core, "enabled", defaults.enabled());
+    boolean guiEnabled = jsonBool(core, "gui-enabled", defaults.guiEnabled());
     int targetViewDistanceChunks =
         nonNegativeInt(jsonInt(coreTarget, "view-distance-chunks", defaults.targetViewDistanceChunks()));
     int targetSimulationDistanceChunks =
@@ -305,6 +323,7 @@ public record SimViewConfig(
 
     return new SimViewConfig(
         enabled,
+        guiEnabled,
         targetViewDistanceChunks,
         targetSimulationDistanceChunks,
         viewAdjustmentMode,

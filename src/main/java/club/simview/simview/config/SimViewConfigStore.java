@@ -22,4 +22,9 @@ public final class SimViewConfigStore {
     config.set(loaded);
     return loaded;
   }
+
+  public SimViewConfig saveAndReload(SimViewConfig updated) {
+    SimViewConfig.save(dataDirectory, updated);
+    return reload();
+  }
 }
