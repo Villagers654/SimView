@@ -42,7 +42,7 @@ On startup, SimView creates:
         "simulation-distance-chunks": 0
       },
       "maximum": {
-        "view-distance-chunks": 96,
+        "view-distance-chunks": 32,
         "simulation-distance-chunks": 32
       }
     }

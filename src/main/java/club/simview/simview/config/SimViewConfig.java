@@ -61,7 +61,7 @@ public record SimViewConfig(
         SimViewAdjustmentMode.OFF,
         SimViewAdjustmentMode.OFF,
         0,
-        96,
+        32,
         0,
         runtimeHytaleViewDistance,
         600,
