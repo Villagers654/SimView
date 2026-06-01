@@ -24,8 +24,6 @@ On startup, SimView creates:
 
 - `SimView/config/simview.json`
 
-SimView resolves this under the parent of the plugin data directory (so it has a stable shared root named `SimView`).
-
 ### Default config
 
 ```json
