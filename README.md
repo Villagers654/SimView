@@ -4,6 +4,8 @@ SimView is a Hytale server plugin that separates **simulation distance** chunks 
 
 It keeps a controlled simulation distance for gameplay while streaming additional distant chunks as view-only "cold" chunks. This lets players see farther with much lower server cost than simulating everything in full.
 
+SimView also has 'auto mode', which dynamically tunes simulation & view distance on current server load, saving resources when performance is under pressure.
+
 ## Build
 
 ```bash
