@@ -11,6 +11,7 @@ import java.util.regex.Pattern;
 public record SimViewConfig(
     boolean enabled,
     boolean guiEnabled,
+    boolean disableJoinHintMessage,
     int targetViewDistanceChunks,
     int targetSimulationDistanceChunks,
     SimViewAdjustmentMode adjustmentMode,
@@ -33,6 +34,7 @@ public record SimViewConfig(
     boolean reactiveUseMsptPrediction,
     int reactiveMsptPredictionHistoryMinutes,
     boolean generateMissingColdChunks,
+    boolean cacheColdChunkPacketsInMemory,
     int maxChunkSendsPerSecond,
     int maxChunkSendsPerTick,
     int maxColdChunkLoadsInFlight,
@@ -50,6 +52,7 @@ public record SimViewConfig(
     return new SimViewConfig(
         true,
         true,
+        false,
         32,
         runtimeHytaleViewDistance,
         SimViewAdjustmentMode.OFF,
@@ -71,6 +74,7 @@ public record SimViewConfig(
         1200,
         true,
         30,
+        true,
         true,
         96,
         8,
@@ -196,6 +200,8 @@ public record SimViewConfig(
     appendObjectStart(text, lineSeparator, 1, "core");
     appendBoolean(text, lineSeparator, 2, "enabled", config.enabled(), true);
     appendBoolean(text, lineSeparator, 2, "gui-enabled", config.guiEnabled(), true);
+    appendBoolean(
+        text, lineSeparator, 2, "disable-join-hint-message", config.disableJoinHintMessage(), true);
     appendObjectStart(text, lineSeparator, 2, "target");
     appendNumber(text, lineSeparator, 3, "view-distance-chunks", config.targetViewDistanceChunks(), true);
     appendNumber(text, lineSeparator, 3, "simulation-distance-chunks", config.targetSimulationDistanceChunks(), false);
@@ -246,6 +252,7 @@ public record SimViewConfig(
 
     appendObjectStart(text, lineSeparator, 1, "cold-chunk-streaming");
     appendBoolean(text, lineSeparator, 2, "generate-missing", config.generateMissingColdChunks(), true);
+    appendBoolean(text, lineSeparator, 2, "cache-packets-in-memory", config.cacheColdChunkPacketsInMemory(), true);
     appendBoolean(text, lineSeparator, 2, "despawn-entities", config.despawnEntitiesInColdChunks(), true);
     appendObjectStart(text, lineSeparator, 2, "budget");
     appendNumber(text, lineSeparator, 3, "chunk-sends-per-second", config.maxChunkSendsPerSecond(), true);
@@ -291,6 +298,8 @@ public record SimViewConfig(
 
     boolean enabled = jsonBool(core, "enabled", defaults.enabled());
     boolean guiEnabled = jsonBool(core, "gui-enabled", defaults.guiEnabled());
+    boolean disableJoinHintMessage =
+        jsonBool(core, "disable-join-hint-message", defaults.disableJoinHintMessage());
     int targetViewDistanceChunks =
         nonNegativeInt(jsonInt(coreTarget, "view-distance-chunks", defaults.targetViewDistanceChunks()));
     int targetSimulationDistanceChunks =
@@ -324,6 +333,7 @@ public record SimViewConfig(
     return new SimViewConfig(
         enabled,
         guiEnabled,
+        disableJoinHintMessage,
         targetViewDistanceChunks,
         targetSimulationDistanceChunks,
         viewAdjustmentMode,
@@ -386,6 +396,7 @@ public record SimViewConfig(
                 "mspt-prediction-history-minutes",
                 defaults.reactiveMsptPredictionHistoryMinutes())),
         jsonBool(streaming, "generate-missing", defaults.generateMissingColdChunks()),
+        jsonBool(streaming, "cache-packets-in-memory", defaults.cacheColdChunkPacketsInMemory()),
         positiveInt(jsonInt(streamingBudget, "chunk-sends-per-second", defaults.maxChunkSendsPerSecond())),
         positiveInt(jsonInt(streamingBudget, "chunk-sends-per-tick", defaults.maxChunkSendsPerTick())),
         positiveInt(

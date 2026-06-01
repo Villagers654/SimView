@@ -43,7 +43,10 @@ public final class SimViewConfigPage
   private static final String ACTION_TOGGLE_ADVANCED = "ToggleAdvanced";
 
   private static final Set<String> SIMPLE_SETTING_IDS =
-      Set.of("targetViewDistanceChunks", "targetSimulationDistanceChunks");
+      Set.of(
+          "targetViewDistanceChunks",
+          "targetSimulationDistanceChunks",
+          "disableJoinHintMessage");
 
   private static final List<SettingDef> SETTINGS =
       List.of(
@@ -54,6 +57,11 @@ public final class SimViewConfigPage
               "Core: GUI Enabled",
               SettingKind.BOOLEAN,
               "Enable or disable this GUI"),
+          new SettingDef(
+              "disableJoinHintMessage",
+              "Core: Disable Join Tip Message",
+              SettingKind.BOOLEAN,
+              "Disable the /simview tip message shown when players join"),
           new SettingDef(
               "targetViewDistanceChunks",
               "Target: View Distance (chunks)",
@@ -164,6 +172,11 @@ public final class SimViewConfigPage
               "Cold Streaming: Generate Missing",
               SettingKind.BOOLEAN,
               "Generate missing chunks in the cold ring"),
+          new SettingDef(
+              "cacheColdChunkPacketsInMemory",
+              "Cold Streaming: Cache Packets",
+              SettingKind.BOOLEAN,
+              "Keep reusable cold chunk packets in memory; disable for zero packet-cache memory"),
           new SettingDef(
               "maxChunkSendsPerSecond",
               "Cold Streaming: Sends Per Second",
@@ -577,8 +590,10 @@ public final class SimViewConfigPage
     switch (setting.id()) {
       case "enabled" -> draft.enabled = value;
       case "guiEnabled" -> draft.guiEnabled = value;
+      case "disableJoinHintMessage" -> draft.disableJoinHintMessage = value;
       case "reactiveUseMsptPrediction" -> draft.reactiveUseMsptPrediction = value;
       case "generateMissingColdChunks" -> draft.generateMissingColdChunks = value;
+      case "cacheColdChunkPacketsInMemory" -> draft.cacheColdChunkPacketsInMemory = value;
       case "despawnEntitiesInColdChunks" -> draft.despawnEntitiesInColdChunks = value;
       default -> {
         feedback = "This setting cannot be edited as a boolean.";
@@ -757,6 +772,7 @@ public final class SimViewConfigPage
     return switch (setting.id()) {
       case "enabled" -> Boolean.toString(config.enabled());
       case "guiEnabled" -> Boolean.toString(config.guiEnabled());
+      case "disableJoinHintMessage" -> Boolean.toString(config.disableJoinHintMessage());
       case "targetViewDistanceChunks" -> Integer.toString(config.targetViewDistanceChunks());
       case "targetSimulationDistanceChunks" -> Integer.toString(config.targetSimulationDistanceChunks());
       case "adjustmentMode" -> config.adjustmentMode().name().toLowerCase(Locale.ROOT);
@@ -794,6 +810,7 @@ public final class SimViewConfigPage
       case "reactiveMsptPredictionHistoryMinutes" ->
           Integer.toString(config.reactiveMsptPredictionHistoryMinutes());
       case "generateMissingColdChunks" -> Boolean.toString(config.generateMissingColdChunks());
+      case "cacheColdChunkPacketsInMemory" -> Boolean.toString(config.cacheColdChunkPacketsInMemory());
       case "maxChunkSendsPerSecond" -> Integer.toString(config.maxChunkSendsPerSecond());
       case "maxChunkSendsPerTick" -> Integer.toString(config.maxChunkSendsPerTick());
       case "maxColdChunkLoadsInFlight" -> Integer.toString(config.maxColdChunkLoadsInFlight());
@@ -815,8 +832,10 @@ public final class SimViewConfigPage
     return switch (settingId) {
       case "enabled" -> config.enabled();
       case "guiEnabled" -> config.guiEnabled();
+      case "disableJoinHintMessage" -> config.disableJoinHintMessage();
       case "reactiveUseMsptPrediction" -> config.reactiveUseMsptPrediction();
       case "generateMissingColdChunks" -> config.generateMissingColdChunks();
+      case "cacheColdChunkPacketsInMemory" -> config.cacheColdChunkPacketsInMemory();
       case "despawnEntitiesInColdChunks" -> config.despawnEntitiesInColdChunks();
       default -> false;
     };
@@ -843,6 +862,7 @@ public final class SimViewConfigPage
   private static final class ConfigDraft {
     private boolean enabled;
     private boolean guiEnabled;
+    private boolean disableJoinHintMessage;
     private int targetViewDistanceChunks;
     private int targetSimulationDistanceChunks;
     private SimViewAdjustmentMode adjustmentMode;
@@ -865,6 +885,7 @@ public final class SimViewConfigPage
     private boolean reactiveUseMsptPrediction;
     private int reactiveMsptPredictionHistoryMinutes;
     private boolean generateMissingColdChunks;
+    private boolean cacheColdChunkPacketsInMemory;
     private int maxChunkSendsPerSecond;
     private int maxChunkSendsPerTick;
     private int maxColdChunkLoadsInFlight;
@@ -877,6 +898,7 @@ public final class SimViewConfigPage
     private ConfigDraft(SimViewConfig config) {
       this.enabled = config.enabled();
       this.guiEnabled = config.guiEnabled();
+      this.disableJoinHintMessage = config.disableJoinHintMessage();
       this.targetViewDistanceChunks = config.targetViewDistanceChunks();
       this.targetSimulationDistanceChunks = config.targetSimulationDistanceChunks();
       this.adjustmentMode = config.adjustmentMode();
@@ -901,6 +923,7 @@ public final class SimViewConfigPage
       this.reactiveUseMsptPrediction = config.reactiveUseMsptPrediction();
       this.reactiveMsptPredictionHistoryMinutes = config.reactiveMsptPredictionHistoryMinutes();
       this.generateMissingColdChunks = config.generateMissingColdChunks();
+      this.cacheColdChunkPacketsInMemory = config.cacheColdChunkPacketsInMemory();
       this.maxChunkSendsPerSecond = config.maxChunkSendsPerSecond();
       this.maxChunkSendsPerTick = config.maxChunkSendsPerTick();
       this.maxColdChunkLoadsInFlight = config.maxColdChunkLoadsInFlight();
@@ -915,6 +938,7 @@ public final class SimViewConfigPage
       return new SimViewConfig(
           enabled,
           guiEnabled,
+          disableJoinHintMessage,
           targetViewDistanceChunks,
           targetSimulationDistanceChunks,
           adjustmentMode,
@@ -937,6 +961,7 @@ public final class SimViewConfigPage
           reactiveUseMsptPrediction,
           reactiveMsptPredictionHistoryMinutes,
           generateMissingColdChunks,
+          cacheColdChunkPacketsInMemory,
           maxChunkSendsPerSecond,
           maxChunkSendsPerTick,
           maxColdChunkLoadsInFlight,

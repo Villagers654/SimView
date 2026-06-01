@@ -31,6 +31,7 @@ On startup, SimView creates:
   "core": {
     "enabled": true,
     "gui-enabled": true,
+    "disable-join-hint-message": false,
     "target": {
       "view-distance-chunks": 32,
       "simulation-distance-chunks": 32
@@ -79,6 +80,7 @@ On startup, SimView creates:
   },
   "cold-chunk-streaming": {
     "generate-missing": true,
+    "cache-packets-in-memory": true,
     "despawn-entities": true,
     "budget": {
       "chunk-sends-per-second": 96,
@@ -102,6 +104,7 @@ On startup, SimView creates:
 - `core.target.view-distance-chunks`: desired SimView view distance.
 - `core.target.simulation-distance-chunks`: desired simulation distance (what Hytale runtime view cap is set to).
 - `core.gui-enabled`: toggles the `/simview` GUI command.
+- `core.disable-join-hint-message`: disables the `/simview` tip message shown when players join.
 - `core.limits.minimum|maximum.*`: clamp ranges for view and simulation targets.
 - `auto-adjustment.mode.view|simulation`: auto mode per target (`off`, `proactive`, `reactive`, `mixed`).
 - `auto-adjustment.cadence.*`: shared startup delay and check interval.
@@ -110,6 +113,7 @@ On startup, SimView creates:
 - `auto-adjustment.reactive.*`: MSPT thresholds, collection cadence, and prediction controls.
 - `cold-chunk-streaming.budget.*`: cold chunk send/load budgets.
 - `cold-chunk-streaming.generate-missing`: allows generating cold chunks if not present.
+- `cold-chunk-streaming.cache-packets-in-memory`: keeps reusable cold chunk packets in memory. Set to `false` for zero packet-cache memory; SimView will load/build packets only when needed and coalesce concurrent reads for the same chunk.
 - `cold-chunk-streaming.despawn-entities`: keeps entity simulation/visibility at hot radius.
 - `speeding-adjustments.*`: temporary tighter send budgets while players move quickly.
 
