@@ -1,4 +1,4 @@
-package club.simview.simview.service;
+package net.modtale.simview.service;
 
 import java.util.Arrays;
 

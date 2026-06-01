@@ -1,4 +1,4 @@
-package club.simview.simview.config;
+package net.modtale.simview.config;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;

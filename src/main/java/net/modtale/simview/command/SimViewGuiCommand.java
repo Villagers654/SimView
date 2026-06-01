@@ -1,8 +1,8 @@
-package club.simview.simview.command;
+package net.modtale.simview.command;
 
-import club.simview.simview.permission.SimViewAccessControl;
-import club.simview.simview.service.SimViewDistanceService;
-import club.simview.simview.ui.SimViewConfigPage;
+import net.modtale.simview.permission.SimViewAccessControl;
+import net.modtale.simview.service.SimViewDistanceService;
+import net.modtale.simview.ui.SimViewConfigPage;
 import com.hypixel.hytale.component.Ref;
 import com.hypixel.hytale.component.Store;
 import com.hypixel.hytale.server.core.Message;

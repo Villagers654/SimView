@@ -1,6 +1,6 @@
-package club.simview.simview.service;
+package net.modtale.simview.service;
 
-import club.simview.simview.config.SimViewConfig;
+import net.modtale.simview.config.SimViewConfig;
 import com.hypixel.hytale.component.ComponentType;
 import com.hypixel.hytale.component.Holder;
 import com.hypixel.hytale.math.iterator.CircleSpiralIterator;

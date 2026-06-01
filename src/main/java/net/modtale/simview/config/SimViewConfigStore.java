@@ -1,4 +1,4 @@
-package club.simview.simview.config;
+package net.modtale.simview.config;
 
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicReference;

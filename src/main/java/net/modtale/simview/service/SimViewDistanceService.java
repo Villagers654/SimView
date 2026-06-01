@@ -1,7 +1,7 @@
-package club.simview.simview.service;
+package net.modtale.simview.service;
 
-import club.simview.simview.config.SimViewConfig;
-import club.simview.simview.config.SimViewConfigStore;
+import net.modtale.simview.config.SimViewConfig;
+import net.modtale.simview.config.SimViewConfigStore;
 import com.hypixel.hytale.server.core.HytaleServer;
 import com.hypixel.hytale.server.core.HytaleServerConfig;
 import java.util.UUID;

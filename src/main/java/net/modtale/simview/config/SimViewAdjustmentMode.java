@@ -1,4 +1,4 @@
-package club.simview.simview.config;
+package net.modtale.simview.config;
 
 public enum SimViewAdjustmentMode {
   OFF,

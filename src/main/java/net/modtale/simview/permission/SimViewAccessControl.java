@@ -1,4 +1,4 @@
-package club.simview.simview.permission;
+package net.modtale.simview.permission;
 
 import com.hypixel.hytale.server.core.Constants;
 import com.hypixel.hytale.server.core.modules.singleplayer.SingleplayerModule;

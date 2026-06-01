@@ -1,5 +1,5 @@
 {
-  "Group": "club.simview",
+  "Group": "net.modtale",
   "Name": "SimView",
   "Version": "0.1.0",
   "Description": "Separates visible chunks from simulated chunks for large low-cost view distances.",
@@ -15,6 +15,6 @@
   },
   "OptionalDependencies": {},
   "DisabledByDefault": false,
-  "Main": "club.simview.simview.SimView",
+  "Main": "net.modtale.simview.SimView",
   "IncludesAssetPack": true
 }

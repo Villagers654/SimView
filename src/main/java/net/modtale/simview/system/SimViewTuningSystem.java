@@ -1,8 +1,8 @@
-package club.simview.simview.system;
+package net.modtale.simview.system;
 
-import club.simview.simview.config.SimViewConfig;
-import club.simview.simview.service.SimViewColdChunkStreamer;
-import club.simview.simview.service.SimViewDistanceService;
+import net.modtale.simview.config.SimViewConfig;
+import net.modtale.simview.service.SimViewColdChunkStreamer;
+import net.modtale.simview.service.SimViewDistanceService;
 import com.hypixel.hytale.component.ArchetypeChunk;
 import com.hypixel.hytale.component.CommandBuffer;
 import com.hypixel.hytale.component.ComponentType;

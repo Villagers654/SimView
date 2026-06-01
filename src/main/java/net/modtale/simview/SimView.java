@@ -1,13 +1,13 @@
-package club.simview.simview;
+package net.modtale.simview;
 
-import club.simview.simview.command.SimViewGuiCommand;
-import club.simview.simview.command.SimViewReloadCommand;
-import club.simview.simview.config.SimViewConfig;
-import club.simview.simview.config.SimViewConfigStore;
-import club.simview.simview.permission.SimViewAccessControl;
-import club.simview.simview.service.SimViewColdChunkStreamer;
-import club.simview.simview.service.SimViewDistanceService;
-import club.simview.simview.system.SimViewTuningSystem;
+import net.modtale.simview.command.SimViewGuiCommand;
+import net.modtale.simview.command.SimViewReloadCommand;
+import net.modtale.simview.config.SimViewConfig;
+import net.modtale.simview.config.SimViewConfigStore;
+import net.modtale.simview.permission.SimViewAccessControl;
+import net.modtale.simview.service.SimViewColdChunkStreamer;
+import net.modtale.simview.service.SimViewDistanceService;
+import net.modtale.simview.system.SimViewTuningSystem;
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.hypixel.hytale.server.core.Message;
 import com.hypixel.hytale.server.core.event.events.player.AddPlayerToWorldEvent;
