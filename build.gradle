@@ -19,6 +19,7 @@ repositories {
 
 dependencies {
     compileOnly 'com.hypixel.hytale:Server:0.5.3'
+    implementation 'com.google.code.gson:gson:2.11.0'
 }
 
 java {
@@ -31,4 +32,9 @@ tasks.withType(JavaCompile).configureEach {
 
 jar {
     archiveBaseName.set('SimView')
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
 }

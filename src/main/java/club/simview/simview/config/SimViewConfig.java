@@ -1,12 +1,14 @@
 package club.simview.simview.config;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.hypixel.hytale.server.core.HytaleServer;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public record SimViewConfig(
     boolean enabled,
@@ -46,6 +48,7 @@ public record SimViewConfig(
 
   public static final int CHUNK_SIZE_BLOCKS = 32;
   private static final String CONFIG_FILE = "simview.json";
+  private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
   public static SimViewConfig defaults() {
     int runtimeHytaleViewDistance = Math.max(0, HytaleServer.get().getConfig().getMaxViewRadius());
@@ -96,18 +99,12 @@ public record SimViewConfig(
       if (Files.notExists(configFile)) {
         writeDefaults(configFile, defaults);
       }
-    } catch (IOException exception) {
-      throw new IllegalStateException("Unable to load SimView config from " + configFile, exception);
-    }
 
-    try {
       String json = Files.readString(configFile, StandardCharsets.UTF_8);
       return fromJson(json, defaults);
-    } catch (IOException ignored) {
-      // Fall back to defaults if JSON cannot be read.
+    } catch (Exception exception) {
+      throw new IllegalStateException("Unable to load SimView config from " + configFile, exception);
     }
-
-    return defaults;
   }
 
   public static void save(Path dataDirectory, SimViewConfig config) {
@@ -143,8 +140,6 @@ public record SimViewConfig(
 
   public int simulationDistanceCap(int configuredHytaleViewDistanceChunks, int activeTargetSimulationDistanceChunks) {
     int configuredHytale = Math.max(0, configuredHytaleViewDistanceChunks);
-    // Ticking distance override is independent from SimView's cold-chunk feature toggle.
-    // When configured, this should still drive Hytale's runtime view cap.
     return clampedTargetSimulationDistanceChunks(configuredHytale, activeTargetSimulationDistanceChunks);
   }
 
@@ -194,141 +189,143 @@ public record SimViewConfig(
   }
 
   private static String renderJson(SimViewConfig config) {
-    String lineSeparator = System.lineSeparator();
-    StringBuilder text = new StringBuilder();
-    appendObjectStart(text, lineSeparator, 0, "");
-    appendObjectStart(text, lineSeparator, 1, "core");
-    appendBoolean(text, lineSeparator, 2, "enabled", config.enabled(), true);
-    appendBoolean(text, lineSeparator, 2, "gui-enabled", config.guiEnabled(), true);
-    appendBoolean(
-        text, lineSeparator, 2, "disable-join-hint-message", config.disableJoinHintMessage(), true);
-    appendObjectStart(text, lineSeparator, 2, "target");
-    appendNumber(text, lineSeparator, 3, "view-distance-chunks", config.targetViewDistanceChunks(), true);
-    appendNumber(text, lineSeparator, 3, "simulation-distance-chunks", config.targetSimulationDistanceChunks(), false);
-    appendObjectEnd(text, lineSeparator, 2, true);
-    appendObjectStart(text, lineSeparator, 2, "limits");
-    appendObjectStart(text, lineSeparator, 3, "minimum");
-    appendNumber(text, lineSeparator, 4, "view-distance-chunks", config.minimumTargetViewDistanceChunks(), true);
-    appendNumber(text, lineSeparator, 4, "simulation-distance-chunks", config.minimumTargetSimulationDistanceChunks(), false);
-    appendObjectEnd(text, lineSeparator, 3, true);
-    appendObjectStart(text, lineSeparator, 3, "maximum");
-    appendNumber(text, lineSeparator, 4, "view-distance-chunks", config.maximumTargetViewDistanceChunks(), true);
-    appendNumber(text, lineSeparator, 4, "simulation-distance-chunks", config.maximumTargetSimulationDistanceChunks(), false);
-    appendObjectEnd(text, lineSeparator, 3, false);
-    appendObjectEnd(text, lineSeparator, 2, false);
-    appendObjectEnd(text, lineSeparator, 1, true);
+    JsonObject root = new JsonObject();
 
-    appendObjectStart(text, lineSeparator, 1, "auto-adjustment");
-    appendObjectStart(text, lineSeparator, 2, "mode");
-    appendString(text, lineSeparator, 3, "view", config.adjustmentMode().name().toLowerCase(), true);
-    appendString(text, lineSeparator, 3, "simulation", config.simulationAdjustmentMode().name().toLowerCase(), false);
-    appendObjectEnd(text, lineSeparator, 2, true);
-    appendObjectStart(text, lineSeparator, 2, "cadence");
-    appendNumber(text, lineSeparator, 3, "ticks-per-check", config.adjustmentTicksPerCheck(), true);
-    appendNumber(text, lineSeparator, 3, "startup-delay-ticks", config.adjustmentStartupDelayTicks(), false);
-    appendObjectEnd(text, lineSeparator, 2, true);
-    appendObjectStart(text, lineSeparator, 2, "checks");
-    appendObjectStart(text, lineSeparator, 3, "view");
-    appendNumber(text, lineSeparator, 4, "for-increase", config.adjustmentPassedChecksForIncrease(), true);
-    appendNumber(text, lineSeparator, 4, "for-decrease", config.adjustmentPassedChecksForDecrease(), false);
-    appendObjectEnd(text, lineSeparator, 3, true);
-    appendObjectStart(text, lineSeparator, 3, "simulation");
-    appendNumber(text, lineSeparator, 4, "for-increase", config.simulationAdjustmentPassedChecksForIncrease(), true);
-    appendNumber(text, lineSeparator, 4, "for-decrease", config.simulationAdjustmentPassedChecksForDecrease(), false);
-    appendObjectEnd(text, lineSeparator, 3, false);
-    appendObjectEnd(text, lineSeparator, 2, true);
-    appendObjectStart(text, lineSeparator, 2, "proactive");
-    appendNumber(text, lineSeparator, 3, "global-cold-chunk-count-target", config.proactiveGlobalColdChunkCountTarget(), true);
-    appendNumber(text, lineSeparator, 3, "global-ticking-chunk-count-target", config.proactiveGlobalTickingChunkCountTarget(), false);
-    appendObjectEnd(text, lineSeparator, 2, true);
-    appendObjectStart(text, lineSeparator, 2, "reactive");
-    appendNumber(text, lineSeparator, 3, "increase-mspt-threshold", config.reactiveIncreaseMsptThreshold(), true);
-    appendNumber(text, lineSeparator, 3, "decrease-mspt-threshold", config.reactiveDecreaseMsptThreshold(), true);
-    appendNumber(text, lineSeparator, 3, "mspt-collection-period-ticks", config.reactiveMsptCollectionPeriodTicks(), true);
-    appendBoolean(text, lineSeparator, 3, "use-mspt-prediction", config.reactiveUseMsptPrediction(), true);
-    appendNumber(text, lineSeparator, 3, "mspt-prediction-history-minutes", config.reactiveMsptPredictionHistoryMinutes(), false);
-    appendObjectEnd(text, lineSeparator, 2, false);
-    appendObjectEnd(text, lineSeparator, 1, true);
+    JsonObject core = new JsonObject();
+    core.addProperty("enabled", config.enabled());
+    core.addProperty("gui-enabled", config.guiEnabled());
+    core.addProperty("disable-join-hint-message", config.disableJoinHintMessage());
 
-    appendObjectStart(text, lineSeparator, 1, "cold-chunk-streaming");
-    appendBoolean(text, lineSeparator, 2, "generate-missing", config.generateMissingColdChunks(), true);
-    appendBoolean(text, lineSeparator, 2, "cache-packets-in-memory", config.cacheColdChunkPacketsInMemory(), true);
-    appendBoolean(text, lineSeparator, 2, "despawn-entities", config.despawnEntitiesInColdChunks(), true);
-    appendObjectStart(text, lineSeparator, 2, "budget");
-    appendNumber(text, lineSeparator, 3, "chunk-sends-per-second", config.maxChunkSendsPerSecond(), true);
-    appendNumber(text, lineSeparator, 3, "chunk-sends-per-tick", config.maxChunkSendsPerTick(), true);
-    appendNumber(text, lineSeparator, 3, "cold-chunk-loads-in-flight", config.maxColdChunkLoadsInFlight(), false);
-    appendObjectEnd(text, lineSeparator, 2, false);
-    appendObjectEnd(text, lineSeparator, 1, true);
+    JsonObject coreTarget = new JsonObject();
+    coreTarget.addProperty("view-distance-chunks", config.targetViewDistanceChunks());
+    coreTarget.addProperty("simulation-distance-chunks", config.targetSimulationDistanceChunks());
+    core.add("target", coreTarget);
 
-    appendObjectStart(text, lineSeparator, 1, "speeding-adjustments");
-    appendNumber(text, lineSeparator, 2, "not-send-blocks-per-tick", config.speedingNotSendBlocksPerTick(), true);
-    appendNumber(text, lineSeparator, 2, "cooldown-ticks", config.speedingCooldownTicks(), true);
-    appendObjectStart(text, lineSeparator, 2, "budget");
-    appendNumber(text, lineSeparator, 3, "chunk-sends-per-second", config.speedingChunkSendsPerSecond(), true);
-    appendNumber(text, lineSeparator, 3, "chunk-sends-per-tick", config.speedingChunkSendsPerTick(), false);
-    appendObjectEnd(text, lineSeparator, 2, false);
-    appendObjectEnd(text, lineSeparator, 1, false);
+    JsonObject coreLimits = new JsonObject();
+    JsonObject coreLimitsMinimum = new JsonObject();
+    coreLimitsMinimum.addProperty("view-distance-chunks", config.minimumTargetViewDistanceChunks());
+    coreLimitsMinimum.addProperty("simulation-distance-chunks", config.minimumTargetSimulationDistanceChunks());
+    coreLimits.add("minimum", coreLimitsMinimum);
 
-    text.append("}").append(lineSeparator);
-    return text.toString();
+    JsonObject coreLimitsMaximum = new JsonObject();
+    coreLimitsMaximum.addProperty("view-distance-chunks", config.maximumTargetViewDistanceChunks());
+    coreLimitsMaximum.addProperty("simulation-distance-chunks", config.maximumTargetSimulationDistanceChunks());
+    coreLimits.add("maximum", coreLimitsMaximum);
+    core.add("limits", coreLimits);
+    root.add("core", core);
+
+    JsonObject adjustment = new JsonObject();
+    JsonObject adjustmentMode = new JsonObject();
+    adjustmentMode.addProperty("view", config.adjustmentMode().name().toLowerCase());
+    adjustmentMode.addProperty("simulation", config.simulationAdjustmentMode().name().toLowerCase());
+    adjustment.add("mode", adjustmentMode);
+
+    JsonObject adjustmentCadence = new JsonObject();
+    adjustmentCadence.addProperty("ticks-per-check", config.adjustmentTicksPerCheck());
+    adjustmentCadence.addProperty("startup-delay-ticks", config.adjustmentStartupDelayTicks());
+    adjustment.add("cadence", adjustmentCadence);
+
+    JsonObject adjustmentChecks = new JsonObject();
+    JsonObject adjustmentViewChecks = new JsonObject();
+    adjustmentViewChecks.addProperty("for-increase", config.adjustmentPassedChecksForIncrease());
+    adjustmentViewChecks.addProperty("for-decrease", config.adjustmentPassedChecksForDecrease());
+    adjustmentChecks.add("view", adjustmentViewChecks);
+
+    JsonObject adjustmentSimulationChecks = new JsonObject();
+    adjustmentSimulationChecks.addProperty("for-increase", config.simulationAdjustmentPassedChecksForIncrease());
+    adjustmentSimulationChecks.addProperty("for-decrease", config.simulationAdjustmentPassedChecksForDecrease());
+    adjustmentChecks.add("simulation", adjustmentSimulationChecks);
+    adjustment.add("checks", adjustmentChecks);
+
+    JsonObject adjustmentProactive = new JsonObject();
+    adjustmentProactive.addProperty("global-cold-chunk-count-target", config.proactiveGlobalColdChunkCountTarget());
+    adjustmentProactive.addProperty("global-ticking-chunk-count-target", config.proactiveGlobalTickingChunkCountTarget());
+    adjustment.add("proactive", adjustmentProactive);
+
+    JsonObject adjustmentReactive = new JsonObject();
+    adjustmentReactive.addProperty("increase-mspt-threshold", config.reactiveIncreaseMsptThreshold());
+    adjustmentReactive.addProperty("decrease-mspt-threshold", config.reactiveDecreaseMsptThreshold());
+    adjustmentReactive.addProperty("mspt-collection-period-ticks", config.reactiveMsptCollectionPeriodTicks());
+    adjustmentReactive.addProperty("use-mspt-prediction", config.reactiveUseMsptPrediction());
+    adjustmentReactive.addProperty("mspt-prediction-history-minutes", config.reactiveMsptPredictionHistoryMinutes());
+    adjustment.add("reactive", adjustmentReactive);
+    root.add("auto-adjustment", adjustment);
+
+    JsonObject streaming = new JsonObject();
+    streaming.addProperty("generate-missing", config.generateMissingColdChunks());
+    streaming.addProperty("cache-packets-in-memory", config.cacheColdChunkPacketsInMemory());
+    streaming.addProperty("despawn-entities", config.despawnEntitiesInColdChunks());
+
+    JsonObject streamingBudget = new JsonObject();
+    streamingBudget.addProperty("chunk-sends-per-second", config.maxChunkSendsPerSecond());
+    streamingBudget.addProperty("chunk-sends-per-tick", config.maxChunkSendsPerTick());
+    streamingBudget.addProperty("cold-chunk-loads-in-flight", config.maxColdChunkLoadsInFlight());
+    streaming.add("budget", streamingBudget);
+    root.add("cold-chunk-streaming", streaming);
+
+    JsonObject speeding = new JsonObject();
+    speeding.addProperty("not-send-blocks-per-tick", config.speedingNotSendBlocksPerTick());
+    speeding.addProperty("cooldown-ticks", config.speedingCooldownTicks());
+
+    JsonObject speedingBudget = new JsonObject();
+    speedingBudget.addProperty("chunk-sends-per-second", config.speedingChunkSendsPerSecond());
+    speedingBudget.addProperty("chunk-sends-per-tick", config.speedingChunkSendsPerTick());
+    speeding.add("budget", speedingBudget);
+    root.add("speeding-adjustments", speeding);
+
+    return GSON.toJson(root);
   }
 
   private static SimViewConfig fromJson(String json, SimViewConfig defaults) {
-    String core = jsonSection(json, "core");
-    String coreTarget = jsonSection(core, "target");
-    String coreLimits = jsonSection(core, "limits");
-    String coreLimitsMinimum = jsonSection(coreLimits, "minimum");
-    String coreLimitsMaximum = jsonSection(coreLimits, "maximum");
+    JsonObject root = JsonParser.parseString(json).getAsJsonObject();
 
-    String adjustment = jsonSection(json, "auto-adjustment");
-    String adjustmentMode = jsonSection(adjustment, "mode");
-    String adjustmentCadence = jsonSection(adjustment, "cadence");
-    String adjustmentChecks = jsonSection(adjustment, "checks");
-    String adjustmentViewChecks = jsonSection(adjustmentChecks, "view");
-    String adjustmentSimulationChecks = jsonSection(adjustmentChecks, "simulation");
-    String adjustmentProactive = jsonSection(adjustment, "proactive");
-    String adjustmentReactive = jsonSection(adjustment, "reactive");
+    JsonObject core = objectAt(root, "core");
+    JsonObject coreTarget = objectAt(core, "target");
+    JsonObject coreLimits = objectAt(core, "limits");
+    JsonObject coreLimitsMinimum = objectAt(coreLimits, "minimum");
+    JsonObject coreLimitsMaximum = objectAt(coreLimits, "maximum");
 
-    String streaming = jsonSection(json, "cold-chunk-streaming");
-    String streamingBudget = jsonSection(streaming, "budget");
+    JsonObject adjustment = objectAt(root, "auto-adjustment");
+    JsonObject adjustmentMode = objectAt(adjustment, "mode");
+    JsonObject adjustmentCadence = objectAt(adjustment, "cadence");
+    JsonObject adjustmentChecks = objectAt(adjustment, "checks");
+    JsonObject adjustmentViewChecks = objectAt(adjustmentChecks, "view");
+    JsonObject adjustmentSimulationChecks = objectAt(adjustmentChecks, "simulation");
+    JsonObject adjustmentProactive = objectAt(adjustment, "proactive");
+    JsonObject adjustmentReactive = objectAt(adjustment, "reactive");
 
-    String speeding = jsonSection(json, "speeding-adjustments");
-    String speedingBudget = jsonSection(speeding, "budget");
+    JsonObject streaming = objectAt(root, "cold-chunk-streaming");
+    JsonObject streamingBudget = objectAt(streaming, "budget");
 
-    boolean enabled = jsonBool(core, "enabled", defaults.enabled());
-    boolean guiEnabled = jsonBool(core, "gui-enabled", defaults.guiEnabled());
-    boolean disableJoinHintMessage =
-        jsonBool(core, "disable-join-hint-message", defaults.disableJoinHintMessage());
-    int targetViewDistanceChunks =
-        nonNegativeInt(jsonInt(coreTarget, "view-distance-chunks", defaults.targetViewDistanceChunks()));
-    int targetSimulationDistanceChunks =
-        jsonInt(coreTarget, "simulation-distance-chunks", defaults.targetSimulationDistanceChunks());
+    JsonObject speeding = objectAt(root, "speeding-adjustments");
+    JsonObject speedingBudget = objectAt(speeding, "budget");
+
+    boolean enabled = boolAt(core, "enabled", defaults.enabled());
+    boolean guiEnabled = boolAt(core, "gui-enabled", defaults.guiEnabled());
+    boolean disableJoinHintMessage = boolAt(core, "disable-join-hint-message", defaults.disableJoinHintMessage());
+    int targetViewDistanceChunks = nonNegativeInt(intAt(coreTarget, "view-distance-chunks", defaults.targetViewDistanceChunks()));
+    int targetSimulationDistanceChunks = intAt(coreTarget, "simulation-distance-chunks", defaults.targetSimulationDistanceChunks());
 
     SimViewAdjustmentMode viewAdjustmentMode =
         SimViewAdjustmentMode.fromProperty(
-            jsonString(adjustmentMode, "view", defaults.adjustmentMode().name().toLowerCase()),
+            stringAt(adjustmentMode, "view", defaults.adjustmentMode().name().toLowerCase()),
             defaults.adjustmentMode());
 
     SimViewAdjustmentMode simulationAdjustmentMode =
         SimViewAdjustmentMode.fromProperty(
-            jsonString(adjustmentMode, "simulation", defaults.simulationAdjustmentMode().name().toLowerCase()),
+            stringAt(adjustmentMode, "simulation", defaults.simulationAdjustmentMode().name().toLowerCase()),
             defaults.simulationAdjustmentMode());
 
-    int adjustmentTicksPerCheck =
-        positiveInt(jsonInt(adjustmentCadence, "ticks-per-check", defaults.adjustmentTicksPerCheck()));
-    int adjustmentStartupDelayTicks =
-        nonNegativeInt(jsonInt(adjustmentCadence, "startup-delay-ticks", defaults.adjustmentStartupDelayTicks()));
-    int adjustmentPassedChecksForIncrease =
-        positiveInt(jsonInt(adjustmentViewChecks, "for-increase", defaults.adjustmentPassedChecksForIncrease()));
-    int adjustmentPassedChecksForDecrease =
-        positiveInt(jsonInt(adjustmentViewChecks, "for-decrease", defaults.adjustmentPassedChecksForDecrease()));
+    int adjustmentTicksPerCheck = positiveInt(intAt(adjustmentCadence, "ticks-per-check", defaults.adjustmentTicksPerCheck()));
+    int adjustmentStartupDelayTicks = nonNegativeInt(intAt(adjustmentCadence, "startup-delay-ticks", defaults.adjustmentStartupDelayTicks()));
+    int adjustmentPassedChecksForIncrease = positiveInt(intAt(adjustmentViewChecks, "for-increase", defaults.adjustmentPassedChecksForIncrease()));
+    int adjustmentPassedChecksForDecrease = positiveInt(intAt(adjustmentViewChecks, "for-decrease", defaults.adjustmentPassedChecksForDecrease()));
 
     int simulationAdjustmentPassedChecksForIncrease =
-        positiveInt(jsonInt(adjustmentSimulationChecks, "for-increase", defaults.simulationAdjustmentPassedChecksForIncrease()));
+        positiveInt(intAt(adjustmentSimulationChecks, "for-increase", defaults.simulationAdjustmentPassedChecksForIncrease()));
 
     int simulationAdjustmentPassedChecksForDecrease =
-        positiveInt(jsonInt(adjustmentSimulationChecks, "for-decrease", defaults.simulationAdjustmentPassedChecksForDecrease()));
+        positiveInt(intAt(adjustmentSimulationChecks, "for-decrease", defaults.simulationAdjustmentPassedChecksForDecrease()));
 
     return new SimViewConfig(
         enabled,
@@ -338,208 +335,95 @@ public record SimViewConfig(
         targetSimulationDistanceChunks,
         viewAdjustmentMode,
         simulationAdjustmentMode,
-        nonNegativeInt(
-            jsonInt(
-                coreLimitsMinimum,
-                "view-distance-chunks",
-                defaults.minimumTargetViewDistanceChunks())),
-        nonNegativeInt(
-            jsonInt(
-                coreLimitsMaximum,
-                "view-distance-chunks",
-                defaults.maximumTargetViewDistanceChunks())),
-        nonNegativeInt(
-            jsonInt(
-                coreLimitsMinimum,
-                "simulation-distance-chunks",
-                defaults.minimumTargetSimulationDistanceChunks())),
-        nonNegativeInt(
-            jsonInt(
-                coreLimitsMaximum,
-                "simulation-distance-chunks",
-                defaults.maximumTargetSimulationDistanceChunks())),
+        nonNegativeInt(intAt(coreLimitsMinimum, "view-distance-chunks", defaults.minimumTargetViewDistanceChunks())),
+        nonNegativeInt(intAt(coreLimitsMaximum, "view-distance-chunks", defaults.maximumTargetViewDistanceChunks())),
+        nonNegativeInt(intAt(coreLimitsMinimum, "simulation-distance-chunks", defaults.minimumTargetSimulationDistanceChunks())),
+        nonNegativeInt(intAt(coreLimitsMaximum, "simulation-distance-chunks", defaults.maximumTargetSimulationDistanceChunks())),
         adjustmentTicksPerCheck,
         adjustmentStartupDelayTicks,
         adjustmentPassedChecksForIncrease,
         adjustmentPassedChecksForDecrease,
         simulationAdjustmentPassedChecksForIncrease,
         simulationAdjustmentPassedChecksForDecrease,
-        nonNegativeLong(
-            jsonLong(
-                adjustmentProactive,
-                "global-cold-chunk-count-target",
-                defaults.proactiveGlobalColdChunkCountTarget())),
-        nonNegativeLong(
-            jsonLong(
-                adjustmentProactive,
-                "global-ticking-chunk-count-target",
-                defaults.proactiveGlobalTickingChunkCountTarget())),
-        nonNegativeDouble(
-            jsonDouble(
-                adjustmentReactive,
-                "increase-mspt-threshold",
-                defaults.reactiveIncreaseMsptThreshold())),
-        nonNegativeDouble(
-            jsonDouble(
-                adjustmentReactive,
-                "decrease-mspt-threshold",
-                defaults.reactiveDecreaseMsptThreshold())),
-        positiveInt(
-            jsonInt(
-                adjustmentReactive,
-                "mspt-collection-period-ticks",
-                defaults.reactiveMsptCollectionPeriodTicks())),
-        jsonBool(adjustmentReactive, "use-mspt-prediction", defaults.reactiveUseMsptPrediction()),
-        positiveInt(
-            jsonInt(
-                adjustmentReactive,
-                "mspt-prediction-history-minutes",
-                defaults.reactiveMsptPredictionHistoryMinutes())),
-        jsonBool(streaming, "generate-missing", defaults.generateMissingColdChunks()),
-        jsonBool(streaming, "cache-packets-in-memory", defaults.cacheColdChunkPacketsInMemory()),
-        positiveInt(jsonInt(streamingBudget, "chunk-sends-per-second", defaults.maxChunkSendsPerSecond())),
-        positiveInt(jsonInt(streamingBudget, "chunk-sends-per-tick", defaults.maxChunkSendsPerTick())),
-        positiveInt(
-            jsonInt(streamingBudget, "cold-chunk-loads-in-flight", defaults.maxColdChunkLoadsInFlight())),
-        jsonBool(streaming, "despawn-entities", defaults.despawnEntitiesInColdChunks()),
-        nonNegativeDouble(
-            jsonDouble(
-                speeding,
-                "not-send-blocks-per-tick",
-                defaults.speedingNotSendBlocksPerTick())),
-        positiveInt(jsonInt(speedingBudget, "chunk-sends-per-second", defaults.speedingChunkSendsPerSecond())),
-        positiveInt(jsonInt(speedingBudget, "chunk-sends-per-tick", defaults.speedingChunkSendsPerTick())),
-        nonNegativeInt(jsonInt(speeding, "cooldown-ticks", defaults.speedingCooldownTicks())));
+        nonNegativeLong(longAt(adjustmentProactive, "global-cold-chunk-count-target", defaults.proactiveGlobalColdChunkCountTarget())),
+        nonNegativeLong(longAt(adjustmentProactive, "global-ticking-chunk-count-target", defaults.proactiveGlobalTickingChunkCountTarget())),
+        nonNegativeDouble(doubleAt(adjustmentReactive, "increase-mspt-threshold", defaults.reactiveIncreaseMsptThreshold())),
+        nonNegativeDouble(doubleAt(adjustmentReactive, "decrease-mspt-threshold", defaults.reactiveDecreaseMsptThreshold())),
+        positiveInt(intAt(adjustmentReactive, "mspt-collection-period-ticks", defaults.reactiveMsptCollectionPeriodTicks())),
+        boolAt(adjustmentReactive, "use-mspt-prediction", defaults.reactiveUseMsptPrediction()),
+        positiveInt(intAt(adjustmentReactive, "mspt-prediction-history-minutes", defaults.reactiveMsptPredictionHistoryMinutes())),
+        boolAt(streaming, "generate-missing", defaults.generateMissingColdChunks()),
+        boolAt(streaming, "cache-packets-in-memory", defaults.cacheColdChunkPacketsInMemory()),
+        positiveInt(intAt(streamingBudget, "chunk-sends-per-second", defaults.maxChunkSendsPerSecond())),
+        positiveInt(intAt(streamingBudget, "chunk-sends-per-tick", defaults.maxChunkSendsPerTick())),
+        positiveInt(intAt(streamingBudget, "cold-chunk-loads-in-flight", defaults.maxColdChunkLoadsInFlight())),
+        boolAt(streaming, "despawn-entities", defaults.despawnEntitiesInColdChunks()),
+        nonNegativeDouble(doubleAt(speeding, "not-send-blocks-per-tick", defaults.speedingNotSendBlocksPerTick())),
+        positiveInt(intAt(speedingBudget, "chunk-sends-per-second", defaults.speedingChunkSendsPerSecond())),
+        positiveInt(intAt(speedingBudget, "chunk-sends-per-tick", defaults.speedingChunkSendsPerTick())),
+        nonNegativeInt(intAt(speeding, "cooldown-ticks", defaults.speedingCooldownTicks())));
   }
 
-  private static void appendObjectStart(StringBuilder text, String lineSeparator, int indent, String key) {
-    if (key.isEmpty()) {
-      text.append("{").append(lineSeparator);
-      return;
+  private static JsonObject objectAt(JsonObject parent, String key) {
+    if (parent == null || !parent.has(key) || !parent.get(key).isJsonObject()) {
+      return new JsonObject();
     }
-    text.append("  ".repeat(Math.max(0, indent))).append("\"").append(key).append("\": {").append(lineSeparator);
+    return parent.getAsJsonObject(key);
   }
 
-  private static void appendObjectEnd(StringBuilder text, String lineSeparator, int indent, boolean withComma) {
-    text.append("  ".repeat(Math.max(0, indent))).append("}");
-    if (withComma) {
-      text.append(",");
-    }
-    text.append(lineSeparator);
-  }
-
-  private static void appendString(
-      StringBuilder text, String lineSeparator, int indent, String key, String value, boolean withComma) {
-    appendPrimitive(text, lineSeparator, indent, key, "\"" + value + "\"", withComma);
-  }
-
-  private static void appendNumber(
-      StringBuilder text, String lineSeparator, int indent, String key, Number value, boolean withComma) {
-    appendPrimitive(text, lineSeparator, indent, key, value.toString(), withComma);
-  }
-
-  private static void appendBoolean(
-      StringBuilder text, String lineSeparator, int indent, String key, boolean value, boolean withComma) {
-    appendPrimitive(text, lineSeparator, indent, key, Boolean.toString(value), withComma);
-  }
-
-  private static void appendPrimitive(
-      StringBuilder text, String lineSeparator, int indent, String key, String renderedValue, boolean withComma) {
-    text.append("  ".repeat(Math.max(0, indent)))
-        .append("\"")
-        .append(key)
-        .append("\": ")
-        .append(renderedValue);
-    if (withComma) {
-      text.append(",");
-    }
-    text.append(lineSeparator);
-  }
-
-  private static String jsonSection(String json, String sectionName) {
-    String patternText = "\"" + Pattern.quote(sectionName) + "\"\\s*:\\s*\\{";
-    Pattern pattern = Pattern.compile(patternText);
-    Matcher matcher = pattern.matcher(json);
-    if (!matcher.find()) {
-      return "";
-    }
-    int open = matcher.end() - 1;
-    int close = findMatchingBrace(json, open);
-    if (close <= open) {
-      return "";
-    }
-    return json.substring(open + 1, close);
-  }
-
-  private static int findMatchingBrace(String text, int openBraceIndex) {
-    int depth = 0;
-    for (int i = openBraceIndex; i < text.length(); i++) {
-      char c = text.charAt(i);
-      if (c == '{') {
-        depth++;
-      } else if (c == '}') {
-        depth--;
-        if (depth == 0) {
-          return i;
-        }
-      }
-    }
-    return -1;
-  }
-
-  private static String jsonString(String section, String key, String fallback) {
-    String value = jsonMatch(section, key, "\"((?:[^\"\\\\]|\\\\.)*)\"");
-    return value == null ? fallback : value.trim();
-  }
-
-  private static boolean jsonBool(String section, String key, boolean fallback) {
-    String value = jsonMatch(section, key, "(true|false)");
-    return value == null ? fallback : Boolean.parseBoolean(value.trim());
-  }
-
-  private static int jsonInt(String section, String key, int fallback) {
-    String value = jsonMatch(section, key, "(-?\\d+)");
-    if (value == null) {
+  private static String stringAt(JsonObject parent, String key, String fallback) {
+    if (parent == null || !parent.has(key)) {
       return fallback;
     }
     try {
-      return Integer.parseInt(value.trim());
-    } catch (NumberFormatException ignored) {
+      return parent.get(key).getAsString().trim();
+    } catch (Exception ignored) {
       return fallback;
     }
   }
 
-  private static long jsonLong(String section, String key, long fallback) {
-    String value = jsonMatch(section, key, "(-?\\d+)");
-    if (value == null) {
+  private static boolean boolAt(JsonObject parent, String key, boolean fallback) {
+    if (parent == null || !parent.has(key)) {
       return fallback;
     }
     try {
-      return Long.parseLong(value.trim());
-    } catch (NumberFormatException ignored) {
+      return parent.get(key).getAsBoolean();
+    } catch (Exception ignored) {
       return fallback;
     }
   }
 
-  private static double jsonDouble(String section, String key, double fallback) {
-    String value = jsonMatch(section, key, "(-?\\d+(?:\\.\\d+)?)");
-    if (value == null) {
+  private static int intAt(JsonObject parent, String key, int fallback) {
+    if (parent == null || !parent.has(key)) {
       return fallback;
     }
     try {
-      return Double.parseDouble(value.trim());
-    } catch (NumberFormatException ignored) {
+      return parent.get(key).getAsInt();
+    } catch (Exception ignored) {
       return fallback;
     }
   }
 
-  private static String jsonMatch(String text, String key, String valuePattern) {
-    if (text == null || text.isEmpty()) {
-      return null;
+  private static long longAt(JsonObject parent, String key, long fallback) {
+    if (parent == null || !parent.has(key)) {
+      return fallback;
     }
-    Pattern pattern = Pattern.compile("\"" + Pattern.quote(key) + "\"\\s*:\\s*" + valuePattern);
-    Matcher matcher = pattern.matcher(text);
-    return matcher.find() ? matcher.group(1) : null;
+    try {
+      return parent.get(key).getAsLong();
+    } catch (Exception ignored) {
+      return fallback;
+    }
+  }
+
+  private static double doubleAt(JsonObject parent, String key, double fallback) {
+    if (parent == null || !parent.has(key)) {
+      return fallback;
+    }
+    try {
+      return parent.get(key).getAsDouble();
+    } catch (Exception ignored) {
+      return fallback;
+    }
   }
 
   private static int positiveInt(int value) {
@@ -557,5 +441,4 @@ public record SimViewConfig(
   private static double nonNegativeDouble(double value) {
     return Math.max(0.0D, value);
   }
-
 }
