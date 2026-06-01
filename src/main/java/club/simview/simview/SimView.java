@@ -83,6 +83,11 @@ public final class SimView extends JavaPlugin {
   }
 
   private void handleAddPlayerToWorld(AddPlayerToWorldEvent event) {
+    SimViewConfig config = distanceService.current();
+    if (config.disableJoinHintMessage()) {
+      return;
+    }
+
     PlayerRef playerRef = event.getHolder().getComponent(PlayerRef.getComponentType());
     if (playerRef == null) {
       return;
