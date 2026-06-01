@@ -11,6 +11,8 @@ import club.simview.simview.system.SimViewTuningSystem;
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.hypixel.hytale.server.core.Message;
 import com.hypixel.hytale.server.core.event.events.player.AddPlayerToWorldEvent;
+import com.hypixel.hytale.server.core.event.events.player.PlayerDisconnectEvent;
+import com.hypixel.hytale.server.core.event.events.player.RemovedPlayerFromWorldEvent;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
 import com.hypixel.hytale.server.core.plugin.JavaPluginInit;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
@@ -25,6 +27,7 @@ public final class SimView extends JavaPlugin {
 
   private SimViewDistanceService distanceService;
   private SimViewColdChunkStreamer coldChunkStreamer;
+  private SimViewTuningSystem tuningSystem;
   private final Set<UUID> hintedPlayers = ConcurrentHashMap.newKeySet();
 
   public SimView(JavaPluginInit init) {
@@ -43,10 +46,13 @@ public final class SimView extends JavaPlugin {
     distanceService.applyServerViewDistanceCap();
 
     SimViewConfig config = distanceService.current();
-    this.getEntityStoreRegistry().registerSystem(new SimViewTuningSystem(distanceService, coldChunkStreamer));
+    tuningSystem = new SimViewTuningSystem(distanceService, coldChunkStreamer);
+    this.getEntityStoreRegistry().registerSystem(tuningSystem);
     this.getCommandRegistry().registerCommand(new SimViewGuiCommand(distanceService));
     this.getCommandRegistry().registerCommand(new SimViewReloadCommand(distanceService));
     this.getEventRegistry().registerGlobal(AddPlayerToWorldEvent.class, this::handleAddPlayerToWorld);
+    this.getEventRegistry().registerGlobal(RemovedPlayerFromWorldEvent.class, this::handleRemovedPlayerFromWorld);
+    this.getEventRegistry().registerGlobal(PlayerDisconnectEvent.class, this::handlePlayerDisconnect);
 
     LOGGER.atInfo().log(
         "SimView setup complete: configuredSimulationDistance=%s chunks, configuredTargetSimulationDistance=%s chunks, activeTargetSimulationDistance=%s chunks, configuredViewDistance=%s chunks, activeViewDistance=%s chunks, viewMode=%s, simulationMode=%s, viewDistanceCap=%s chunks, configRoot=%s",
@@ -69,6 +75,7 @@ public final class SimView extends JavaPlugin {
 
     if (coldChunkStreamer != null) {
       coldChunkStreamer.unloadAll();
+      coldChunkStreamer.close();
     }
     hintedPlayers.clear();
 
@@ -81,7 +88,8 @@ public final class SimView extends JavaPlugin {
       return;
     }
 
-    if (!hintedPlayers.add(playerRef.getUuid())) {
+    UUID playerUuid = playerRef.getUuid();
+    if (playerUuid == null || !hintedPlayers.add(playerUuid)) {
       return;
     }
 
@@ -92,6 +100,33 @@ public final class SimView extends JavaPlugin {
 
     playerRef.sendMessage(
         Message.raw("Tip: Use /simview to customize your view and simulation distances.").color("yellow"));
+  }
+
+  private void handleRemovedPlayerFromWorld(RemovedPlayerFromWorldEvent event) {
+    PlayerRef playerRef = event.getHolder().getComponent(PlayerRef.getComponentType());
+    cleanupPlayer(playerRef);
+  }
+
+  private void handlePlayerDisconnect(PlayerDisconnectEvent event) {
+    cleanupPlayer(event.getPlayerRef());
+  }
+
+  private void cleanupPlayer(PlayerRef playerRef) {
+    if (playerRef == null) {
+      return;
+    }
+
+    if (coldChunkStreamer != null) {
+      coldChunkStreamer.unload(playerRef);
+    }
+    if (tuningSystem != null) {
+      tuningSystem.unload(playerRef);
+    }
+
+    UUID playerUuid = playerRef.getUuid();
+    if (playerUuid != null) {
+      hintedPlayers.remove(playerUuid);
+    }
   }
 
 }

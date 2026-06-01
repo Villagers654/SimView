@@ -4,10 +4,10 @@ import club.simview.simview.config.SimViewAdjustmentMode;
 import club.simview.simview.config.SimViewConfig;
 import java.util.ArrayDeque;
 import java.util.Deque;
-import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class SimViewAutoTuner {
 
@@ -16,13 +16,13 @@ public final class SimViewAutoTuner {
 
   private final int configuredHytaleViewDistanceChunks;
   private final SimViewMsptTracker msptTracker;
-  private final Map<UUID, PlayerSample> playerSamples = new HashMap<>();
-  private final Map<UUID, WorldTickSample> worldLastTick = new HashMap<>();
+  private final ConcurrentHashMap<UUID, PlayerSample> playerSamples = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<UUID, WorldTickSample> worldLastTick = new ConcurrentHashMap<>();
   private final Deque<MsptChunkRecord> msptChunkHistory = new ArrayDeque<>();
 
   private volatile int activeTargetViewDistanceChunks;
   private volatile int activeTargetSimulationDistanceChunks;
-  private long observedServerTicks;
+  private volatile long observedServerTicks;
   private long lastCheckTick;
   private long lastStalePlayerPruneTick;
 
@@ -80,7 +80,7 @@ public final class SimViewAutoTuner {
     return activeTargetSimulationDistanceChunks;
   }
 
-  public synchronized boolean observe(
+  public boolean observe(
       UUID playerUuid,
       UUID worldUuid,
       long worldTick,
@@ -94,21 +94,27 @@ public final class SimViewAutoTuner {
 
     PlayerSample playerSample = playerSamples.get(playerUuid);
     if (playerSample == null) {
-      playerSamples.put(
-          playerUuid, new PlayerSample(Math.max(0, requestedViewDistanceChunks), observedServerTicks));
-    } else {
+      PlayerSample newSample =
+          new PlayerSample(Math.max(0, requestedViewDistanceChunks), observedServerTicks);
+      PlayerSample previousSample = playerSamples.putIfAbsent(playerUuid, newSample);
+      playerSample = previousSample == null ? newSample : previousSample;
+    }
+    if (playerSample != null) {
       playerSample.requestedViewDistanceChunks = Math.max(0, requestedViewDistanceChunks);
       playerSample.lastSeenServerTick = observedServerTicks;
     }
 
     WorldTickSample previousTick = worldLastTick.get(resolvedWorldUuid);
-    if (previousTick != null) {
-      if (worldTick <= previousTick.tick) {
-        return false;
+    if (previousTick == null) {
+      WorldTickSample newTick = new WorldTickSample(worldTick);
+      previousTick = worldLastTick.putIfAbsent(resolvedWorldUuid, newTick);
+      if (previousTick == null) {
+        return observeServerTick(deltaSeconds, config);
       }
-      previousTick.tick = worldTick;
-    } else {
-      worldLastTick.put(resolvedWorldUuid, new WorldTickSample(worldTick));
+    }
+
+    if (!previousTick.advanceIfNewer(worldTick)) {
+      return false;
     }
 
     return observeServerTick(deltaSeconds, config);
@@ -457,11 +463,9 @@ public final class SimViewAutoTuner {
   }
 
   private void pruneStalePlayers() {
-    Iterator<Map.Entry<UUID, PlayerSample>> iterator = playerSamples.entrySet().iterator();
-    while (iterator.hasNext()) {
-      Map.Entry<UUID, PlayerSample> entry = iterator.next();
+    for (Map.Entry<UUID, PlayerSample> entry : playerSamples.entrySet()) {
       if (observedServerTicks - entry.getValue().lastSeenServerTick > STALE_PLAYER_TICKS) {
-        iterator.remove();
+        playerSamples.remove(entry.getKey(), entry.getValue());
       }
     }
   }
@@ -515,8 +519,8 @@ public final class SimViewAutoTuner {
   }
 
   private static final class PlayerSample {
-    private int requestedViewDistanceChunks;
-    private long lastSeenServerTick;
+    private volatile int requestedViewDistanceChunks;
+    private volatile long lastSeenServerTick;
 
     private PlayerSample(int requestedViewDistanceChunks, long lastSeenServerTick) {
       this.requestedViewDistanceChunks = requestedViewDistanceChunks;
@@ -525,10 +529,22 @@ public final class SimViewAutoTuner {
   }
 
   private static final class WorldTickSample {
-    private long tick;
+    private final AtomicLong tick;
 
     private WorldTickSample(long tick) {
-      this.tick = tick;
+      this.tick = new AtomicLong(tick);
+    }
+
+    private boolean advanceIfNewer(long nextTick) {
+      while (true) {
+        long previousTick = tick.get();
+        if (nextTick <= previousTick) {
+          return false;
+        }
+        if (tick.compareAndSet(previousTick, nextTick)) {
+          return true;
+        }
+      }
     }
   }
 

@@ -35,10 +35,7 @@ public final class SimViewTuningSystem extends EntityTickingSystem<EntityStore> 
 
   private final SimViewDistanceService distanceService;
   private final SimViewColdChunkStreamer coldChunkStreamer;
-  private final ConcurrentHashMap<UUID, Integer> advertisedViewDistanceBlocks = new ConcurrentHashMap<>();
-  private final ConcurrentHashMap<UUID, Integer> preferredRequestedViewDistanceChunks =
-      new ConcurrentHashMap<>();
-  private final ConcurrentHashMap<UUID, Long> runtimeDistanceRevisions = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<UUID, PlayerTuningState> tuningStates = new ConcurrentHashMap<>();
 
   public SimViewTuningSystem(SimViewDistanceService distanceService, SimViewColdChunkStreamer coldChunkStreamer) {
     this.distanceService = distanceService;
@@ -74,6 +71,8 @@ public final class SimViewTuningSystem extends EntityTickingSystem<EntityStore> 
     EntityViewer entityViewer = chunk.getComponent(index, ENTITY_VIEWER_COMPONENT_TYPE);
     TransformComponent transformComponent = chunk.getComponent(index, TRANSFORM_COMPONENT_TYPE);
     World world = store.getExternalData().getWorld();
+    UUID playerUuid = playerRef.getUuid();
+    PlayerTuningState tuningState = stateFor(playerUuid);
 
     int rawRequestedViewDistance = Math.max(0, player.getClientViewRadius());
     int activeSimulationTarget = distanceService.activeTargetSimulationDistanceChunks();
@@ -82,9 +81,9 @@ public final class SimViewTuningSystem extends EntityTickingSystem<EntityStore> 
         config.simulationDistanceCap(distanceService.hytaleSimulationDistanceChunks(), activeSimulationTarget);
     int requestedViewDistance =
         resolveRequestedViewDistance(
-            playerRef.getUuid(), rawRequestedViewDistance, activeSimulationDistance, activeViewTarget);
-    applyResolvedClientViewRadius(playerRef, player, entityViewer, requestedViewDistance);
-    invalidateAdvertisedViewDistanceOnRuntimeChange(playerRef);
+            rawRequestedViewDistance, activeSimulationDistance, activeViewTarget);
+    applyResolvedClientViewRadius(tuningState, player, entityViewer, requestedViewDistance);
+    invalidateAdvertisedViewDistanceOnRuntimeChange(tuningState);
 
     int serverLimitedViewDistance = Math.max(0, player.getViewRadius());
     int effectiveViewDistance =
@@ -93,14 +92,14 @@ public final class SimViewTuningSystem extends EntityTickingSystem<EntityStore> 
         config.effectiveSimulationDistance(activeSimulationDistance, requestedViewDistance);
 
     distanceService.observePlayerTick(
-        playerRef.getUuid(),
+        playerUuid,
         playerRef.getWorldUuid(),
         world.getTick(),
         deltaSeconds,
         requestedViewDistance);
 
     if (!config.enabled() || effectiveViewDistance <= effectiveSimulationDistance) {
-      advertiseViewDistance(playerRef, serverLimitedViewDistance);
+      advertiseViewDistance(playerRef, tuningState, serverLimitedViewDistance);
       coldChunkStreamer.unload(playerRef);
       restoreVanillaTuning(playerRef, chunkTracker, entityViewer, serverLimitedViewDistance);
       return;
@@ -116,16 +115,25 @@ public final class SimViewTuningSystem extends EntityTickingSystem<EntityStore> 
     setEntityViewRadiusBlocks(entityViewer, entityViewDistance);
     if (!chunkTracker.isReadyForChunks()
         || !playerRef.getPacketHandler().getChannel(NetworkChannel.Chunks).isWritable()) {
-      advertisedViewDistanceBlocks.remove(playerRef.getUuid());
+      if (tuningState != null) {
+        tuningState.advertisedViewDistanceBlocks = -1;
+      }
       return;
     }
-    if (advertiseViewDistance(playerRef, effectiveViewDistance)) {
+    if (advertiseViewDistance(playerRef, tuningState, effectiveViewDistance)) {
       return;
     }
 
     Vector3d position = transformComponent.getPosition();
     coldChunkStreamer.tick(
         world, playerRef, position, deltaSeconds, config, effectiveSimulationDistance, effectiveViewDistance);
+  }
+
+  public void unload(PlayerRef playerRef) {
+    UUID playerUuid = playerRef.getUuid();
+    if (playerUuid != null) {
+      tuningStates.remove(playerUuid);
+    }
   }
 
   private static void restoreVanillaTuning(
@@ -184,8 +192,15 @@ public final class SimViewTuningSystem extends EntityTickingSystem<EntityStore> 
     }
   }
 
+  private PlayerTuningState stateFor(UUID playerUuid) {
+    if (playerUuid == null) {
+      return null;
+    }
+    return tuningStates.computeIfAbsent(playerUuid, ignored -> new PlayerTuningState());
+  }
+
   private void applyResolvedClientViewRadius(
-      PlayerRef playerRef, Player player, EntityViewer entityViewer, int requestedViewDistance) {
+      PlayerTuningState tuningState, Player player, EntityViewer entityViewer, int requestedViewDistance) {
     int resolvedViewDistance = Math.max(0, requestedViewDistance);
     if (player.getClientViewRadius() == resolvedViewDistance) {
       return;
@@ -193,23 +208,20 @@ public final class SimViewTuningSystem extends EntityTickingSystem<EntityStore> 
 
     player.setClientViewRadius(resolvedViewDistance);
     setEntityViewRadiusBlocks(entityViewer, player.getViewRadius());
-
-    UUID playerUuid = playerRef.getUuid();
-    if (playerUuid != null) {
-      advertisedViewDistanceBlocks.remove(playerUuid);
+    if (tuningState != null) {
+      tuningState.advertisedViewDistanceBlocks = -1;
     }
   }
 
-  private void invalidateAdvertisedViewDistanceOnRuntimeChange(PlayerRef playerRef) {
-    UUID playerUuid = playerRef.getUuid();
-    if (playerUuid == null) {
+  private void invalidateAdvertisedViewDistanceOnRuntimeChange(PlayerTuningState tuningState) {
+    if (tuningState == null) {
       return;
     }
 
     long revision = distanceService.runtimeDistanceRevision();
-    Long previousRevision = runtimeDistanceRevisions.put(playerUuid, revision);
-    if (previousRevision == null || previousRevision.longValue() != revision) {
-      advertisedViewDistanceBlocks.remove(playerUuid);
+    if (tuningState.runtimeDistanceRevision != revision) {
+      tuningState.runtimeDistanceRevision = revision;
+      tuningState.advertisedViewDistanceBlocks = -1;
     }
   }
 
@@ -219,48 +231,39 @@ public final class SimViewTuningSystem extends EntityTickingSystem<EntityStore> 
   }
 
   private int resolveRequestedViewDistance(
-      UUID playerUuid,
       int rawRequestedViewDistance,
       int activeSimulationDistance,
       int activeViewTarget) {
     int rawRequested = Math.max(0, rawRequestedViewDistance);
     int simulationDistance = Math.max(0, activeSimulationDistance);
     int viewTarget = Math.max(0, activeViewTarget);
-    if (playerUuid == null) {
-      return viewTarget > simulationDistance ? Math.max(rawRequested, viewTarget) : rawRequested;
-    }
-
     // The runtime cap is intentionally set to the hot radius, so the reported client radius can
     // decay toward simulation distance during normal play. Keep SimView's extended target as the
     // floor while cold chunks are active so movement cannot collapse the view back to hot-only.
-    return preferredRequestedViewDistanceChunks.compute(
-        playerUuid,
-        (uuid, previous) -> {
-          if (viewTarget > simulationDistance) {
-            return Math.max(rawRequested, viewTarget);
-          }
-          return rawRequested;
-        });
+    return viewTarget > simulationDistance ? Math.max(rawRequested, viewTarget) : rawRequested;
   }
 
-  private boolean advertiseViewDistance(PlayerRef playerRef, int viewRadiusChunks) {
+  private boolean advertiseViewDistance(
+      PlayerRef playerRef, PlayerTuningState tuningState, int viewRadiusChunks) {
     if (!playerRef.isValid()) {
-      UUID playerUuid = playerRef.getUuid();
-      advertisedViewDistanceBlocks.remove(playerUuid);
-      preferredRequestedViewDistanceChunks.remove(playerUuid);
-      runtimeDistanceRevisions.remove(playerUuid);
+      unload(playerRef);
       return false;
     }
 
-    UUID playerUuid = playerRef.getUuid();
     int viewRadiusBlocks = viewRadiusBlocks(viewRadiusChunks);
-    Integer previous = advertisedViewDistanceBlocks.get(playerUuid);
-    if (previous != null && previous == viewRadiusBlocks) {
+    if (tuningState != null && tuningState.advertisedViewDistanceBlocks == viewRadiusBlocks) {
       return false;
     }
 
-    advertisedViewDistanceBlocks.put(playerUuid, viewRadiusBlocks);
+    if (tuningState != null) {
+      tuningState.advertisedViewDistanceBlocks = viewRadiusBlocks;
+    }
     playerRef.getPacketHandler().writeNoCache(new ViewRadius(viewRadiusBlocks));
     return true;
+  }
+
+  private static final class PlayerTuningState {
+    private int advertisedViewDistanceBlocks = -1;
+    private long runtimeDistanceRevision = Long.MIN_VALUE;
   }
 }

@@ -27,9 +27,13 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.joml.Vector3d;
 
-public final class SimViewColdChunkStreamer {
+public final class SimViewColdChunkStreamer implements AutoCloseable {
 
   private static final ComponentType<ChunkStore, BlockChunk> BLOCK_CHUNK_COMPONENT_TYPE =
       BlockChunk.getComponentType();
@@ -43,8 +47,14 @@ public final class SimViewColdChunkStreamer {
   private static final ToClientPacket[] EMPTY_PACKETS = new ToClientPacket[0];
   private static final CompletableFuture<ToClientPacket[]> EMPTY_PACKETS_FUTURE =
       CompletableFuture.completedFuture(EMPTY_PACKETS);
+  private static final int PACKET_WORKER_COUNT =
+      Math.max(1, Math.min(4, Runtime.getRuntime().availableProcessors()));
+  private static final int GLOBAL_LOADS_IN_FLIGHT_LIMIT = Math.max(128, PACKET_WORKER_COUNT * 64);
 
   private final ConcurrentHashMap<UUID, PlayerColdView> views = new ConcurrentHashMap<>();
+  private final AtomicInteger globalLoadsInFlight = new AtomicInteger();
+  private final ExecutorService packetExecutor =
+      Executors.newFixedThreadPool(PACKET_WORKER_COUNT, new SimViewThreadFactory());
 
   public void tick(
       World world,
@@ -54,15 +64,21 @@ public final class SimViewColdChunkStreamer {
       SimViewConfig config,
       int hytaleSimulationDistanceChunks,
       int effectiveViewDistanceChunks) {
-    PlayerColdView view = views.computeIfAbsent(playerRef.getUuid(), ignored -> new PlayerColdView());
-    view.remember(playerRef);
+    UUID playerUuid = playerRef.getUuid();
     if (!config.enabled() || effectiveViewDistanceChunks <= hytaleSimulationDistanceChunks) {
-      view.unloadAll(playerRef);
+      unload(playerRef);
       return;
     }
-    if (!playerRef.isValid() || !playerRef.getPacketHandler().getChannel(NetworkChannel.Chunks).isWritable()) {
+    if (playerUuid == null || !playerRef.isValid()) {
+      unload(playerRef);
       return;
     }
+    if (!playerRef.getPacketHandler().getChannel(NetworkChannel.Chunks).isWritable()) {
+      return;
+    }
+
+    PlayerColdView view = views.computeIfAbsent(playerUuid, ignored -> new PlayerColdView());
+    view.remember(playerRef);
 
     int chunkX = ChunkUtil.chunkCoordinate(position.x());
     int chunkZ = ChunkUtil.chunkCoordinate(position.z());
@@ -85,7 +101,12 @@ public final class SimViewColdChunkStreamer {
   }
 
   public void unload(PlayerRef playerRef) {
-    PlayerColdView view = views.remove(playerRef.getUuid());
+    UUID playerUuid = playerRef.getUuid();
+    if (playerUuid == null) {
+      return;
+    }
+
+    PlayerColdView view = views.remove(playerUuid);
     if (view != null) {
       view.unloadAll(playerRef);
     }
@@ -96,6 +117,41 @@ public final class SimViewColdChunkStreamer {
       view.unloadAll();
     }
     views.clear();
+  }
+
+  @Override
+  public void close() {
+    packetExecutor.shutdownNow();
+  }
+
+  private boolean tryAcquireGlobalLoadSlot(int perPlayerLoadsInFlight) {
+    int perPlayerLimit = Math.max(1, perPlayerLoadsInFlight);
+    long scaledLimit = (long) perPlayerLimit * Math.max(1, views.size());
+    int globalLimit = (int) Math.max(perPlayerLimit, Math.min(GLOBAL_LOADS_IN_FLIGHT_LIMIT, scaledLimit));
+    while (true) {
+      int current = globalLoadsInFlight.get();
+      if (current >= globalLimit) {
+        return false;
+      }
+      if (globalLoadsInFlight.compareAndSet(current, current + 1)) {
+        return true;
+      }
+    }
+  }
+
+  private void releaseGlobalLoadSlot() {
+    globalLoadsInFlight.updateAndGet(current -> Math.max(0, current - 1));
+  }
+
+  private static final class SimViewThreadFactory implements ThreadFactory {
+    private final AtomicInteger nextThreadId = new AtomicInteger();
+
+    @Override
+    public Thread newThread(Runnable runnable) {
+      Thread thread = new Thread(runnable, "SimView-cold-packet-" + nextThreadId.incrementAndGet());
+      thread.setDaemon(true);
+      return thread;
+    }
   }
 
   private enum BlockChunkPacketCache {
@@ -125,7 +181,7 @@ public final class SimViewColdChunkStreamer {
     }
   }
 
-  private static final class PlayerColdView {
+  private final class PlayerColdView {
     private final LongOpenHashSet sent = new LongOpenHashSet();
     private final LongOpenHashSet loading = new LongOpenHashSet();
     private final LongOpenHashSet coveredByHot = new LongOpenHashSet();
@@ -239,6 +295,7 @@ public final class SimViewColdChunkStreamer {
               innerRadius,
               outerRadius,
               remaining,
+              maxLoadsInFlight,
               generateMissingColdChunks);
       if (remaining <= 0 || loading.size() >= maxLoadsInFlight) {
         return;
@@ -254,6 +311,7 @@ public final class SimViewColdChunkStreamer {
               innerRadius,
               outerRadius,
               remaining,
+              maxLoadsInFlight,
               generateMissingColdChunks);
       if (remaining <= 0 || loading.size() >= maxLoadsInFlight) {
         return;
@@ -275,7 +333,10 @@ public final class SimViewColdChunkStreamer {
           continue;
         }
         if (loading.add(chunkIndex)) {
-          loadAndSend(world, playerRef, chunkIndex, generateMissingColdChunks);
+          if (!loadAndSend(world, playerRef, chunkIndex, maxLoadsInFlight, generateMissingColdChunks)) {
+            loading.remove(chunkIndex);
+            break;
+          }
           remaining--;
         }
       }
@@ -291,6 +352,7 @@ public final class SimViewColdChunkStreamer {
         int innerRadius,
         int outerRadius,
         int remaining,
+        int maxLoadsInFlight,
         boolean generateMissingColdChunks) {
       int innerRadiusSquared = innerRadius * innerRadius;
       int outerRadiusSquared = outerRadius * outerRadius;
@@ -307,7 +369,10 @@ public final class SimViewColdChunkStreamer {
           continue;
         }
         if (loading.add(chunkIndex)) {
-          loadAndSend(world, playerRef, chunkIndex, generateMissingColdChunks);
+          if (!loadAndSend(world, playerRef, chunkIndex, maxLoadsInFlight, generateMissingColdChunks)) {
+            loading.remove(chunkIndex);
+            break;
+          }
           iterator.remove();
           remaining--;
         }
@@ -322,6 +387,7 @@ public final class SimViewColdChunkStreamer {
         coveredByHot.clear();
         resend.clear();
         pendingRetry.clear();
+        trimQueues();
         resetTransientState();
         return;
       }
@@ -334,7 +400,16 @@ public final class SimViewColdChunkStreamer {
       coveredByHot.clear();
       resend.clear();
       pendingRetry.clear();
+      trimQueues();
       resetTransientState();
+    }
+
+    private void trimQueues() {
+      sent.trim();
+      loading.trim();
+      coveredByHot.trim();
+      resend.trim();
+      pendingRetry.trim();
     }
 
     private static void unloadChunks(PacketHandler packetHandler, LongOpenHashSet chunks) {
@@ -407,21 +482,20 @@ public final class SimViewColdChunkStreamer {
       }
     }
 
-    private void loadAndSend(World world, PlayerRef playerRef, long chunkIndex, boolean generateIfMissing) {
+    private boolean loadAndSend(
+        World world, PlayerRef playerRef, long chunkIndex, int maxLoadsInFlight, boolean generateIfMissing) {
+      if (!tryAcquireGlobalLoadSlot(maxLoadsInFlight)) {
+        return false;
+      }
+
       int chunkX = ChunkUtil.xOfChunkIndex(chunkIndex);
       int chunkZ = ChunkUtil.zOfChunkIndex(chunkIndex);
       CompletableFuture<ToClientPacket[]> packetsFuture =
           loadStoredChunkPackets(world, chunkIndex, chunkX, chunkZ, generateIfMissing);
 
-      packetsFuture
-          .thenAcceptAsync(packets -> finishLoad(playerRef, chunkIndex, packets), world)
-          .exceptionally(
-              throwable -> {
-                synchronized (this) {
-                  loading.remove(chunkIndex);
-                }
-                return null;
-              });
+      packetsFuture.whenCompleteAsync(
+          (packets, throwable) -> finishLoad(playerRef, chunkIndex, packets, throwable), world);
+      return true;
     }
 
     private CompletableFuture<ToClientPacket[]> loadStoredChunkPackets(
@@ -434,7 +508,7 @@ public final class SimViewColdChunkStreamer {
 
       return loader
           .loadHolder(chunkX, chunkZ)
-          .thenCompose(
+          .thenComposeAsync(
               holder -> {
                 if (holder == null) {
                   return generateMissingChunkPackets(world, chunkIndex, generateIfMissing);
@@ -445,7 +519,8 @@ public final class SimViewColdChunkStreamer {
                             packets.length == 0
                                 ? generateMissingChunkPackets(world, chunkIndex, generateIfMissing)
                                 : CompletableFuture.completedFuture(packets));
-              });
+              },
+              packetExecutor);
     }
 
     private CompletableFuture<ToClientPacket[]> generateMissingChunkPackets(
@@ -453,7 +528,7 @@ public final class SimViewColdChunkStreamer {
       if (!generateIfMissing) {
         return EMPTY_PACKETS_FUTURE;
       }
-      return world.getNonTickingChunkAsync(chunkIndex).thenCompose(this::createSectionPackets);
+      return world.getNonTickingChunkAsync(chunkIndex).thenComposeAsync(this::createSectionPackets, packetExecutor);
     }
 
     private CompletableFuture<ToClientPacket[]> createSectionPackets(
@@ -544,7 +619,7 @@ public final class SimViewColdChunkStreamer {
       }
 
       return CompletableFuture.allOf(futures)
-          .thenApply(
+          .thenApplyAsync(
               ignored -> {
                 ToClientPacket[] packets = new ToClientPacket[futures.length];
                 int packetCount = 0;
@@ -564,7 +639,8 @@ public final class SimViewColdChunkStreamer {
                 ToClientPacket[] compactPackets = new ToClientPacket[packetCount];
                 System.arraycopy(packets, 0, compactPackets, 0, packetCount);
                 return compactPackets;
-              });
+              },
+              packetExecutor);
     }
 
     private static void ensureCompleteBlockSections(BlockSection[] sections) {
@@ -606,11 +682,13 @@ public final class SimViewColdChunkStreamer {
       return fluidSections;
     }
 
-    private synchronized void finishLoad(PlayerRef playerRef, long chunkIndex, ToClientPacket[] packets) {
+    private synchronized void finishLoad(
+        PlayerRef playerRef, long chunkIndex, ToClientPacket[] packets, Throwable throwable) {
+      releaseGlobalLoadSlot();
       if (!loading.remove(chunkIndex)) {
         return;
       }
-      if (packets.length == 0 || !playerRef.isValid()) {
+      if (throwable != null || packets == null || packets.length == 0 || !playerRef.isValid()) {
         return;
       }
       if (!playerRef.getPacketHandler().getChannel(NetworkChannel.Chunks).isWritable()) {
