@@ -194,6 +194,7 @@ public final class SimViewAutoTuner {
   }
 
   private boolean runAdjustmentCheck(SimViewConfig config) {
+    int previousViewTarget = activeTargetViewDistanceChunks;
     int previousSimulationTarget = activeTargetSimulationDistanceChunks;
     long currentColdChunks =
         estimateGlobalColdChunks(activeTargetViewDistanceChunks, activeTargetSimulationDistanceChunks);
@@ -211,7 +212,8 @@ public final class SimViewAutoTuner {
     applyViewCandidate(config, viewCandidate);
     applySimulationCandidate(config, simulationCandidate);
     normalizeTargets(config);
-    return activeTargetSimulationDistanceChunks != previousSimulationTarget;
+    return activeTargetViewDistanceChunks != previousViewTarget
+        || activeTargetSimulationDistanceChunks != previousSimulationTarget;
   }
 
   private AdjustmentCandidate candidateForView(SimViewConfig config, long currentColdChunks) {

@@ -70,7 +70,7 @@ public final class SimViewDistanceService {
   }
 
   public void applyServerViewDistanceCap() {
-    setRuntimeMaxViewRadius(activeSimulationDistanceCap());
+    setRuntimeMaxViewRadius(activeViewDistanceCap());
     runtimeDistanceRevision.incrementAndGet();
   }
 
