@@ -197,10 +197,13 @@ public final class SimViewColdChunkStreamer {
 
       int moved = Math.max(Math.abs(centerX - chunkX), Math.abs(centerZ - chunkZ));
       boolean radiiChanged = innerRadius != lastInnerRadius || outerRadius != lastOuterRadius;
+      boolean innerRadiusShrank = lastInnerRadius >= 0 && innerRadius < lastInnerRadius;
       if (moved > 0) {
-        completedRadius = Math.max(innerRadius, completedRadius - moved);
         centerX = chunkX;
         centerZ = chunkZ;
+      }
+      if (moved > 0 || innerRadiusShrank) {
+        completedRadius = innerRadius;
       }
 
       completedRadius = Math.min(completedRadius, outerRadius);

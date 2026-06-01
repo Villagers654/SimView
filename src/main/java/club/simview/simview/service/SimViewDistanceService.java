@@ -5,6 +5,7 @@ import club.simview.simview.config.SimViewConfigStore;
 import com.hypixel.hytale.server.core.HytaleServer;
 import com.hypixel.hytale.server.core.HytaleServerConfig;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class SimViewDistanceService {
 
@@ -12,6 +13,7 @@ public final class SimViewDistanceService {
   private final HytaleServerConfig serverConfig;
   private final int configuredHytaleViewDistanceChunks;
   private final SimViewAutoTuner autoTuner;
+  private final AtomicLong runtimeDistanceRevision = new AtomicLong();
 
   public SimViewDistanceService(SimViewConfigStore configStore) {
     this.configStore = configStore;
@@ -51,6 +53,10 @@ public final class SimViewDistanceService {
     return autoTuner.snapshot(current());
   }
 
+  public long runtimeDistanceRevision() {
+    return runtimeDistanceRevision.get();
+  }
+
   public void observePlayerTick(
       UUID playerUuid,
       UUID worldUuid,
@@ -65,10 +71,12 @@ public final class SimViewDistanceService {
 
   public void applyServerViewDistanceCap() {
     setRuntimeMaxViewRadius(activeSimulationDistanceCap());
+    runtimeDistanceRevision.incrementAndGet();
   }
 
   public void restoreHytaleViewDistanceCap() {
     setRuntimeMaxViewRadius(configuredHytaleViewDistanceChunks);
+    runtimeDistanceRevision.incrementAndGet();
   }
 
   public SimViewConfig reload() {
