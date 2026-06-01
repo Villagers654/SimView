@@ -1,0 +1,34 @@
+plugins {
+    id 'java'
+}
+
+group = 'club.simview'
+version = '0.1.0'
+
+repositories {
+    mavenCentral()
+    maven {
+        name = 'hytale-release'
+        url = uri('https://maven.hytale.com/release')
+    }
+    maven {
+        name = 'hytalemodding-releases'
+        url = uri('https://maven.hytalemodding.dev/releases')
+    }
+}
+
+dependencies {
+    compileOnly 'com.hypixel.hytale:Server:0.5.3'
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(25)
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+jar {
+    archiveBaseName.set('SimView')
+}

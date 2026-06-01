@@ -1,0 +1,20 @@
+{
+  "Group": "club.simview",
+  "Name": "SimView",
+  "Version": "0.1.0",
+  "Description": "Separates visible chunks from simulated chunks for large low-cost view distances.",
+  "Authors": [
+    {
+      "Name": "Villagers654"
+    }
+  ],
+  "Website": "https://modtale.net/mod/simview",
+  "ServerVersion": "*",
+  "Dependencies": {
+    "Hytale:EntityModule": "*"
+  },
+  "OptionalDependencies": {},
+  "DisabledByDefault": false,
+  "Main": "club.simview.simview.SimView",
+  "IncludesAssetPack": false
+}
