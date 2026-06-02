@@ -54,7 +54,7 @@ public final class SimViewTuningSystem extends EntityTickingSystem<EntityStore> 
 
   @Override
   public boolean isParallel(int entityCount, int chunkCount) {
-    return maybeUseParallel(entityCount, chunkCount);
+    return useParallel(entityCount, chunkCount);
   }
 
   @Override

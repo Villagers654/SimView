@@ -80,7 +80,7 @@ public final class SimViewAutoTuner {
     return activeTargetSimulationDistanceChunks;
   }
 
-  public boolean observe(
+  public synchronized boolean observe(
       UUID playerUuid,
       UUID worldUuid,
       long worldTick,
