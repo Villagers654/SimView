@@ -11,6 +11,59 @@ import org.joml.Vector3d;
 import org.junit.jupiter.api.Test;
 
 class SimViewNativeStreamingTest {
+  @Test void nativeColdLoadsDoNotRequestTickingButHotLoadsDo() throws Exception {
+    var tracker = new ChunkTracker(() -> SphereOffsets.build(8));
+    tracker.setMinLoadedRadius(8);
+    tracker.setMaxHotLoadedRadius(2);
+    // Section loading runs after native column tracking has been initialized.
+    var columnsField = ChunkTracker.class.getDeclaredField("trackedColumns");
+    columnsField.setAccessible(true);
+    @SuppressWarnings("unchecked")
+    var columns = (it.unimi.dsi.fastutil.longs.Long2ObjectMap<Object>) columnsField.get(tracker);
+    var columnConstructor = Class.forName(ChunkTracker.class.getName() + "$TrackedColumn").getDeclaredConstructor();
+    columnConstructor.setAccessible(true);
+    for (int x : new int[] {1, 4}) {
+      columns.put(com.hypixel.hytale.math.util.ChunkUtil.indexChunk(x, 0), columnConstructor.newInstance());
+    }
+    var chunks = mock(com.hypixel.hytale.server.core.universe.world.storage.ChunkStore.class);
+    when(chunks.getChunkSectionReferenceAsync(anyInt(), anyInt(), anyInt(), anyInt()))
+        .thenAnswer(invocation -> new java.util.concurrent.CompletableFuture<>());
+    var entities = mock(com.hypixel.hytale.server.core.universe.world.storage.EntityStore.class);
+    when(entities.getWorld()).thenReturn(mock(com.hypixel.hytale.server.core.universe.world.World.class));
+    @SuppressWarnings("unchecked")
+    var accessor = (com.hypixel.hytale.component.ComponentAccessor<com.hypixel.hytale.server.core.universe.world.storage.EntityStore>)
+        mock(com.hypixel.hytale.component.ComponentAccessor.class);
+    when(accessor.getExternalData()).thenReturn(entities);
+    var player = mock(com.hypixel.hytale.server.core.universe.PlayerRef.class);
+    var transform = mock(TransformComponent.class);
+    when(transform.getPosition()).thenReturn(new Vector3d());
+    tracker.tryLoadSectionAsync(chunks, player, 4, 0, 0, transform, accessor);
+    verify(chunks).getChunkSectionReferenceAsync(4, 0, 0,
+        com.hypixel.hytale.server.core.universe.world.storage.GetChunkFlags.NO_SET_TICKING_SYNC
+            | com.hypixel.hytale.server.core.universe.world.storage.GetChunkFlags.POLL_STILL_NEEDED);
+    tracker.tryLoadSectionAsync(chunks, player, 1, 0, 0, transform, accessor);
+    verify(chunks).getChunkSectionReferenceAsync(1, 0, 0,
+        com.hypixel.hytale.server.core.universe.world.storage.GetChunkFlags.NO_SET_TICKING_SYNC
+            | com.hypixel.hytale.server.core.universe.world.storage.GetChunkFlags.POLL_STILL_NEEDED
+            | com.hypixel.hytale.server.core.universe.world.storage.GetChunkFlags.SET_TICKING);
+  }
+
+  @Test void nativeTickingSystemsExcludeNonTickingArchetypes() {
+    var registry = new com.hypixel.hytale.component.ComponentRegistry<Object>();
+    var nonTicking = registry.getNonTickingComponentType();
+    var system = new com.hypixel.hytale.component.system.tick.EntityTickingSystem<Object>() {
+      @Override public com.hypixel.hytale.component.query.Query<Object> getQuery() {
+        return com.hypixel.hytale.component.query.Query.any();
+      }
+      @Override public void tick(float dt, int index, com.hypixel.hytale.component.ArchetypeChunk<Object> chunk,
+          com.hypixel.hytale.component.Store<Object> store, com.hypixel.hytale.component.CommandBuffer<Object> commands) {
+        fail("Query verification should not execute ticks");
+      }
+    };
+    assertTrue(system.test(registry, com.hypixel.hytale.component.Archetype.empty()));
+    assertFalse(system.test(registry, com.hypixel.hytale.component.Archetype.of(nonTicking)));
+  }
+
   @Test void nativeTrackerSeparatesHotAndColdSectionsInThreeDimensions() throws Exception {
     ChunkTracker tracker = new ChunkTracker(() -> SphereOffsets.build(8));
     TransformComponent transform = mock(TransformComponent.class);
@@ -25,7 +78,12 @@ class SimViewNativeStreamingTest {
     tracker.setMaxHotLoadedRadius(2);
     assertEquals(ChunkVisibility.HOT, tracker.getSectionVisibility(0, 1, 0));
     assertEquals(ChunkVisibility.COLD, tracker.getSectionVisibility(0, 4, 0));
+    // Legacy world-chunk ticking is column based, even when section streaming is 3D.
+    assertEquals(ChunkVisibility.HOT,
+        tracker.getChunkVisibility(com.hypixel.hytale.math.util.ChunkUtil.indexChunk(0, 0)));
     assertEquals(ChunkVisibility.COLD, tracker.getSectionVisibility(4, 0, 0));
+    assertEquals(ChunkVisibility.COLD,
+        tracker.getChunkVisibility(com.hypixel.hytale.math.util.ChunkUtil.indexChunk(4, 0)));
     assertEquals(ChunkVisibility.NONE, tracker.getSectionVisibility(0, 9, 0));
   }
 
