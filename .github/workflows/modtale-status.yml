@@ -1,0 +1,14 @@
+name: Check Modtale review status
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  status:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - run: python3 .github/scripts/release.py status
+        env:
+          MODTALE_API_KEY: ${{ secrets.MODTALE_API_KEY }}

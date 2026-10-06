@@ -108,6 +108,23 @@ class ReleaseTests(unittest.TestCase):
             self.assertIn('SimView-release', request.get_header('User-agent'))
             self.assertEqual('test-placeholder', request.get_header('X-modtale-key'))
 
+    def test_status_reports_only_requested_project_version(self):
+        import io
+        with patch.dict(os.environ, {'MODTALE_API_KEY': 'test-placeholder'}), \
+             patch.object(release, 'modtale_request', side_effect=[
+                 {'id': release.PROJECT, 'author': 'Villagers654', 'authorId': 'a' * 24},
+                 {'content': [{'id': 'unrelated', 'versions': [{'versionNumber': 'secret-other'}]},
+                     {'id': release.PROJECT, 'versions': [
+                         {'id': 'version-id', 'versionNumber': '0.2.0', 'reviewStatus': 'PENDING',
+                          'rejectionReason': None, 'unrelatedPrivateField': 'not-printed'}]}]}
+             ]), patch('sys.stdout', new_callable=io.StringIO) as output:
+            release.status('0.2.0')
+            reported = json.loads(output.getvalue())
+            self.assertEqual('PENDING', reported['reviewStatus'])
+            self.assertEqual('version-id', reported['id'])
+            self.assertNotIn('not-printed', output.getvalue())
+            self.assertNotIn('secret-other', output.getvalue())
+
 
 if __name__ == '__main__':
     unittest.main()

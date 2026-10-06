@@ -191,6 +191,25 @@ def verify_modtale_file(item, path, digest):
         raise ValueError('Existing Modtale version has different contents')
 
 
+def status(value):
+    key = os.environ.get('MODTALE_API_KEY', '')
+    if not key:
+        raise RuntimeError('Set Actions secret MODTALE_API_KEY')
+    project = modtale_request(f'/projects/{PROJECT}', key)
+    author = project['authorId']
+    if project['id'] != PROJECT or project['author'] != 'Villagers654' or not re.fullmatch(r'[a-f0-9]{24}', author):
+        raise ValueError('Unexpected project owner identity')
+    projects = modtale_request(f'/creators/{author}/projects?size=100', key)['content']
+    managed = next((item for item in projects if item['id'] == PROJECT), None)
+    if managed is None:
+        raise RuntimeError('SimView management status was not returned')
+    item = next((item for item in managed.get('versions', []) if item['versionNumber'] == value), None)
+    if item is None:
+        raise RuntimeError('Requested SimView version status was not returned')
+    print(json.dumps({field: item.get(field) for field in
+        ['id', 'versionNumber', 'reviewStatus', 'rejectionReason']}, ensure_ascii=True))
+
+
 def metadata(value):
     before = os.environ.get('BEFORE_SHA', '')
     changed = os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch'
@@ -205,7 +224,7 @@ def metadata(value):
 
 if __name__ == '__main__':
     try:
-        {'metadata': metadata, 'github': github, 'modtale': modtale}[sys.argv[1]](version())
+        {'metadata': metadata, 'github': github, 'modtale': modtale, 'status': status}[sys.argv[1]](version())
     except Exception as error:
         print(f'Release failed: {error}', file=sys.stderr)
         sys.exit(1)
