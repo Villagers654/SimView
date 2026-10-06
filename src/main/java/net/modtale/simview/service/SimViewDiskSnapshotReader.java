@@ -18,15 +18,26 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.function.BooleanSupplier;
 
-/** Builds detached saved-terrain snapshots. Never inserts holders into the world store. */
+/** Builds packets from detached holders; optional missing-terrain generation has a native owner. */
 final class SimViewDiskSnapshotReader {
   static final int MAX_SNAPSHOT_BYTES = 8 * 1024 * 1024;
   static final int MAX_PACKET_BYTES = 512 * 1024;
 
+  interface MissingTerrain {
+    CompletableFuture<Holder<ChunkStore>> column();
+    CompletableFuture<Holder<ChunkStore>> section(int y);
+  }
+
   static CompletableFuture<List<ToClientPacket>> load(IChunkLoader loader, int x, int z,
       int[] sectionYs, Executor executor, BooleanSupplier cancelled) {
+    return load(loader, x, z, sectionYs, executor, cancelled, null);
+  }
+
+  static CompletableFuture<List<ToClientPacket>> load(IChunkLoader loader, int x, int z,
+      int[] sectionYs, Executor executor, BooleanSupplier cancelled, MissingTerrain missing) {
     if (cancelled.getAsBoolean()) { return CompletableFuture.completedFuture(List.of()); }
-    return loader.loadHolder(x, z).thenComposeAsync(holder -> {
+    return loader.loadHolder(x, z).thenCompose(holder -> holder == null && missing != null && !cancelled.getAsBoolean()
+        ? missing.column() : CompletableFuture.completedFuture(holder)).thenComposeAsync(holder -> {
       if (holder == null || cancelled.getAsBoolean()) {
         return CompletableFuture.completedFuture(List.of());
       }
@@ -42,7 +53,9 @@ final class SimViewDiskSnapshotReader {
             int sectionY = y;
             chain = chain.thenComposeAsync(ignored -> cancelled.getAsBoolean()
                 ? CompletableFuture.completedFuture(null)
-                : cubic.loadSectionHolder(x, sectionY, z).thenAcceptAsync(section -> {
+                : cubic.loadSectionHolder(x, sectionY, z).thenCompose(section ->
+                    section == null && missing != null && !cancelled.getAsBoolean()
+                        ? missing.section(sectionY) : CompletableFuture.completedFuture(section)).thenAcceptAsync(section -> {
                   if (section != null && !cancelled.getAsBoolean()) {
                     builder.section(section, x, sectionY, z);
                   }

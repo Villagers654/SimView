@@ -33,7 +33,7 @@ class SimViewDiskStreamerTest {
     effects.when(() -> type.getMethod("getAssetMap").invoke(null)).thenReturn(assetMap);
   }
   @AfterAll static void closeFixture() { effects.close(); }
-  record Request(int x, int z, int[] ys, BooleanSupplier cancelled,
+  record Request(int x, int z, int[] ys, boolean generate, BooleanSupplier cancelled,
       CompletableFuture<List<ToClientPacket>> result) {}
   static final class Client {
     final World world = mock(World.class);
@@ -57,13 +57,13 @@ class SimViewDiskStreamerTest {
     void tick(SimViewDiskStreamer streamer) { tick(streamer, new Vector3d(), 32, 64, 128); }
     void tick(SimViewDiskStreamer streamer, Vector3d position, int inner, int outer, int budget) {
       streamer.tick(world, player, tracker, position, 0.05f, inner, outer,
-          new SimViewStreamingBudget.Budget(10000, budget));
+          new SimViewStreamingBudget.Budget(10000, budget), false);
     }
   }
   static SimViewDiskStreamer streamer(List<Request> requests) {
-    return new SimViewDiskStreamer((world, x, z, ys, executor, cancelled) -> {
+    return new SimViewDiskStreamer((world, x, z, ys, generate, executor, cancelled) -> {
       var future = new CompletableFuture<List<ToClientPacket>>();
-      requests.add(new Request(x, z, ys, cancelled, future));
+      requests.add(new Request(x, z, ys, generate, cancelled, future));
       return future;
     });
   }
@@ -205,6 +205,24 @@ class SimViewDiskStreamerTest {
       assertEquals(0, reread.x()); assertEquals(0, reread.z());
       assertArrayEquals(new int[] {-2, 2}, reread.ys());
       assertEquals(0, streamer.sentColumns(client.player.getUuid()));
+    }
+  }
+
+  @Test void turningGenerationOffCancelsItsPacketsButKeepsPhysicalAdmissionUntilPersistenceCompletes() {
+    var requests = new ArrayList<Request>();
+    var client = new Client();
+    try (var streamer = streamer(requests)) {
+      streamer.tick(client.world, client.player, client.tracker, new Vector3d(), 0.05f, 32, 64,
+          new SimViewStreamingBudget.Budget(10000, 128), true);
+      var generating = requests.getFirst();
+      assertTrue(generating.generate());
+      client.tick(streamer);
+      assertTrue(generating.cancelled().getAsBoolean());
+      assertFalse(requests.getLast().generate());
+      assertEquals(2, streamer.inFlight());
+      generating.result().complete(List.of(section(generating, 2)));
+      assertEquals(1, streamer.inFlight());
+      verify(client.packets, never()).writeNoCache(any());
     }
   }
 

@@ -44,7 +44,8 @@ public record SimViewConfig(
     int speedingSectionSendsPerSecond,
     int speedingSectionSendsPerTick,
     int speedingCooldownTicks,
-    SimViewStreamingMode streamingMode) {
+    SimViewStreamingMode streamingMode,
+    boolean generateMissingChunks) {
 
   public static final int CHUNK_SIZE_BLOCKS = com.hypixel.hytale.math.util.ChunkUtil.SIZE;
   private static final String CONFIG_FILE = "simview.json";
@@ -108,7 +109,8 @@ public record SimViewConfig(
         0,
         0,
         40,
-        SimViewStreamingMode.NATIVE);
+        SimViewStreamingMode.NATIVE,
+        false);
   }
 
   public static SimViewConfig load(Path dataDirectory) {
@@ -297,6 +299,7 @@ public record SimViewConfig(
 
     JsonObject streaming = new JsonObject();
     streaming.addProperty("mode", config.streamingMode().name().toLowerCase(java.util.Locale.ROOT));
+    streaming.addProperty("generate-missing-chunks", config.generateMissingChunks());
     streaming.addProperty("despawn-entities", config.despawnEntitiesInColdChunks());
 
     JsonObject streamingBudget = new JsonObject();
@@ -426,7 +429,8 @@ public record SimViewConfig(
         nonNegativeInt(intAt(speedingBudget, "section-sends-per-second", defaults.speedingSectionSendsPerSecond())),
         nonNegativeInt(intAt(speedingBudget, "section-sends-per-tick", defaults.speedingSectionSendsPerTick())),
         nonNegativeInt(intAt(speeding, "cooldown-ticks", defaults.speedingCooldownTicks())),
-        SimViewStreamingMode.parse(stringAt(streaming, "mode", defaults.streamingMode().name())));
+        SimViewStreamingMode.parse(stringAt(streaming, "mode", defaults.streamingMode().name())),
+        boolAt(streaming, "generate-missing-chunks", defaults.generateMissingChunks()));
   }
 
   private static JsonObject objectAt(JsonObject parent, String key) {

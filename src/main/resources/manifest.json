@@ -1,7 +1,7 @@
 {
   "Group": "net.modtale",
   "Name": "SimView",
-  "Version": "0.2.0",
+  "Version": "0.3.0",
   "Description": "Separates visible chunks from simulated chunks for large low-cost view distances.",
   "Authors": [
     {

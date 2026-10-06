@@ -90,6 +90,14 @@ def github(value):
                   'block-based distances and native default budgets. Fixes lifecycle restoration, '
                   'configuration migration and tuning bounds. Adds streaming diagnostics and places '
                   'Advanced below the three primary settings.'] if value == '0.2.0' else ['--generate-notes'])
+        if value == '0.3.0':
+            notes = ['--notes', 'Adds optional missing-terrain generation in Disk streaming mode. '
+                     'The generate-missing-chunks setting defaults to false and its GUI control appears only in Disk mode. '
+                     'Generation uses native cold loading and normal world saving; it consumes CPU, disk space and temporary server memory. '
+                     'World saving and unloading must be enabled. Generation admission stays occupied until new terrain is observed saved, '
+                     'including after client cancellation. Native remains the default streaming mode. '
+                     'Validated by API-matrix builds and regression tests on Hytale 0.6.8 and 0.7.0-pre.5.1; '
+                     'live server/client generation and visuals have not been verified.']
         run('gh', 'release', 'create', tag, '--repo', repo, '--target', sha,
             '--draft', '--title', f'SimView {value}', *notes)
         release = find_release(repo, tag)

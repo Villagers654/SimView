@@ -76,7 +76,9 @@ public final class SimViewConfigPage
               SettingKind.INTEGER,
               "Ticking distance in blocks (0-2048, multiples of 32); -1 uses the native hot radius"),
           new SettingDef("streamingMode", "Section Streaming: Mode", SettingKind.MODE,
-              "Native (default): live terrain and generation. Disk: saved terrain snapshots with lower retained world memory; no distant generation."),
+              "Native (default): live terrain and generation. Disk: saved terrain snapshots with lower retained world memory; optional generation below."),
+          new SettingDef("generateMissingChunks", "Disk: Generate Missing Chunks", SettingKind.BOOLEAN,
+              "Off by default. Generate and save missing terrain through native cold loading. Uses CPU, disk space and temporary server memory; requires world saving and unloading."),
           new SettingDef(
               "adjustmentMode",
               "Auto Mode: View",
@@ -307,7 +309,8 @@ public final class SimViewConfigPage
 
     if (ACTION_TOGGLE_ADVANCED.equals(data.action)) {
       advancedMode = !advancedMode;
-      if (!advancedMode && !SIMPLE_SETTING_IDS.contains(selectedSettingId)) {
+      if ((!advancedMode && !SIMPLE_SETTING_IDS.contains(selectedSettingId))
+        || !settingAvailable(selectedSettingId)) {
         selectedSettingId = "targetViewDistanceBlocks";
         resetPendingForSelection();
       }
@@ -379,7 +382,13 @@ public final class SimViewConfigPage
     sendUpdate(commandBuilder, new UIEventBuilder(), false);
   }
 
+  private boolean settingAvailable(String id) {
+    return !id.equals("generateMissingChunks")
+        || distanceService.current().streamingMode() == SimViewStreamingMode.DISK;
+  }
+
   private boolean applyPending(SettingDef setting) {
+    if (!settingAvailable(setting.id())) { return false; }
     return switch (setting.kind()) {
       case BOOLEAN -> applyBoolean(setting, pendingBooleanValue);
       case MODE -> applyMode(setting, pendingEnumValue);
@@ -407,7 +416,8 @@ public final class SimViewConfigPage
   }
 
   private void ensureSelectionIsVisible() {
-    if (!advancedMode && !SIMPLE_SETTING_IDS.contains(selectedSettingId)) {
+    if ((!advancedMode && !SIMPLE_SETTING_IDS.contains(selectedSettingId))
+        || !settingAvailable(selectedSettingId)) {
       selectedSettingId = "targetViewDistanceBlocks";
       resetPendingForSelection();
     }
@@ -559,7 +569,7 @@ public final class SimViewConfigPage
 
   private List<SettingDef> visibleSettings() {
     List<SettingDef> sourceSettings = SETTINGS.stream()
-        .filter(setting -> !SIMPLE_SETTING_IDS.contains(setting.id())).toList();
+        .filter(setting -> !SIMPLE_SETTING_IDS.contains(setting.id()) && settingAvailable(setting.id())).toList();
 
     if (searchQuery.isBlank()) {
       return sourceSettings;
@@ -578,7 +588,8 @@ public final class SimViewConfigPage
   }
 
   private Optional<SettingDef> currentSetting() {
-    return Optional.ofNullable(SETTINGS_BY_ID.get(selectedSettingId));
+    return Optional.ofNullable(SETTINGS_BY_ID.get(selectedSettingId))
+        .filter(setting -> settingAvailable(setting.id()));
   }
 
   private boolean applyBoolean(SettingDef setting, boolean value) {
@@ -590,6 +601,7 @@ public final class SimViewConfigPage
     ConfigDraft draft = new ConfigDraft(current);
 
     switch (setting.id()) {
+      case "generateMissingChunks" -> draft.generateMissingChunks = value;
       case "enabled" -> draft.enabled = value;
       case "guiEnabled" -> draft.guiEnabled = value;
       case "disableJoinHintMessage" -> draft.disableJoinHintMessage = value;
@@ -842,6 +854,7 @@ public final class SimViewConfigPage
 
   private static boolean booleanValue(String settingId, SimViewConfig config) {
     return switch (settingId) {
+      case "generateMissingChunks" -> config.generateMissingChunks();
       case "enabled" -> config.enabled();
       case "guiEnabled" -> config.guiEnabled();
       case "disableJoinHintMessage" -> config.disableJoinHintMessage();
@@ -876,6 +889,7 @@ public final class SimViewConfigPage
     private int targetViewDistanceBlocks;
     private int targetSimulationDistanceBlocks;
     private SimViewStreamingMode streamingMode;
+    private boolean generateMissingChunks;
     private SimViewAdjustmentMode adjustmentMode;
     private SimViewAdjustmentMode simulationAdjustmentMode;
     private int minimumTargetViewDistanceBlocks;
@@ -910,6 +924,7 @@ public final class SimViewConfigPage
       this.targetViewDistanceBlocks = config.targetViewDistanceBlocks();
       this.targetSimulationDistanceBlocks = config.targetSimulationDistanceBlocks();
       this.streamingMode = config.streamingMode();
+      this.generateMissingChunks = config.generateMissingChunks();
       this.adjustmentMode = config.adjustmentMode();
       this.simulationAdjustmentMode = config.simulationAdjustmentMode();
       this.minimumTargetViewDistanceBlocks = config.minimumTargetViewDistanceBlocks();
@@ -973,7 +988,8 @@ public final class SimViewConfigPage
           speedingSectionSendsPerSecond,
           speedingSectionSendsPerTick,
           speedingCooldownTicks,
-          streamingMode);
+          streamingMode,
+          generateMissingChunks);
     }
   }
 

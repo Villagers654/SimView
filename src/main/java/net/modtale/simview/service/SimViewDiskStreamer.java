@@ -36,7 +36,7 @@ public final class SimViewDiskStreamer implements AutoCloseable {
 
   @FunctionalInterface
   interface SnapshotSource {
-    CompletableFuture<List<ToClientPacket>> load(World world, int x, int z, int[] sectionYs,
+    CompletableFuture<List<ToClientPacket>> load(World world, int x, int z, int[] sectionYs, boolean generate,
         Executor executor, BooleanSupplier cancelled);
   }
 
@@ -44,19 +44,22 @@ public final class SimViewDiskStreamer implements AutoCloseable {
   private final Set<Job> jobs = new HashSet<>();
   private final ThreadPoolExecutor workers;
   private final SnapshotSource source;
-  private boolean closed;
+  private volatile boolean closed;
+  private final BooleanSupplier generationAllowed;
   private long nextWarningNanos;
 
-  public SimViewDiskStreamer() {
-    this((world, x, z, ys, executor, cancelled) -> {
-      var loader = world.getChunkStore().getLoader();
-      return loader == null ? CompletableFuture.completedFuture(List.of())
-          : SimViewDiskSnapshotReader.load(loader, x, z, ys, executor, cancelled);
-    });
+  public SimViewDiskStreamer(BooleanSupplier generationAllowed) {
+    this(null, generationAllowed);
   }
 
   SimViewDiskStreamer(SnapshotSource source) {
-    this.source = source;
+    this(source, () -> true);
+  }
+
+  private SimViewDiskStreamer(SnapshotSource source, BooleanSupplier generationAllowed) {
+    this.generationAllowed = generationAllowed;
+    this.source = source == null ? (world, x, z, ys, generate, executor, cancelled) ->
+        SimViewDiskGeneration.load(world, x, z, ys, generate, executor, cancelled, () -> closed) : source;
     workers = new ThreadPoolExecutor(2, 2, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(MAX_JOBS), task -> {
       Thread thread = new Thread(task, "SimView-disk-packets");
       thread.setDaemon(true);
@@ -65,7 +68,7 @@ public final class SimViewDiskStreamer implements AutoCloseable {
   }
 
   public synchronized void tick(World world, PlayerRef player, ChunkTracker tracker, Vector3d position,
-      float dt, int simulationBlocks, int viewBlocks, SimViewStreamingBudget.Budget budget) {
+      float dt, int simulationBlocks, int viewBlocks, SimViewStreamingBudget.Budget budget, boolean generateMissing) {
     reap();
     if (closed || !player.isValid() || !Objects.equals(player.getWorldUuid(), world.getWorldConfig().getUuid())) { return; }
     var channel = player.getPacketHandler().getChannel(StreamType.Game);
@@ -85,11 +88,13 @@ public final class SimViewDiskStreamer implements AutoCloseable {
       views.put(player.getUuid(), view);
     }
     view.tracker = tracker;
-    if (!view.initialized || view.x != x || view.y != y || view.z != z || view.inner != inner || view.outer != outer) {
+    if (!view.initialized || view.x != x || view.y != y || view.z != z || view.inner != inner || view.outer != outer
+        || view.generateMissing != generateMissing) {
       cancel(view, true);
       view.prune(x, y, z, inner, outer);
       view.x = x; view.y = y; view.z = z; view.inner = inner; view.outer = outer;
       view.initialized = true;
+      view.generateMissing = generateMissing;
       view.iterator.init(x, z, 0, outer);
       view.rescanAt = 0;
     }
@@ -188,7 +193,8 @@ public final class SimViewDiskStreamer implements AutoCloseable {
       view.job = next;
       try {
         next.future = source.load(world, ChunkUtil.xOfChunkIndex(index), ChunkUtil.zOfChunkIndex(index),
-            needed.toIntArray(), workers, () -> next.cancelled);
+            needed.toIntArray(), generateMissing, workers,
+            () -> next.cancelled || closed || (generateMissing && !generationAllowed.getAsBoolean()));
       } catch (RuntimeException exception) {
         next.future = CompletableFuture.failedFuture(exception);
       }
@@ -324,7 +330,7 @@ public final class SimViewDiskStreamer implements AutoCloseable {
     final CircleSpiralIterator iterator = new CircleSpiralIterator();
     int x, y, z, inner, outer;
     long ticks, rescanAt;
-    boolean initialized, waitingForSlot;
+    boolean initialized, waitingForSlot, generateMissing;
     float tokens;
     Job job;
     View(World world, PlayerRef player, ChunkTracker tracker) {

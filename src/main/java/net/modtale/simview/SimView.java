@@ -49,7 +49,11 @@ public final class SimView extends JavaPlugin {
     distanceService.applyServerViewDistanceCap();
 
     SimViewConfig config = distanceService.current();
-    diskStreamer = new SimViewDiskStreamer();
+    diskStreamer = new SimViewDiskStreamer(() -> {
+      var current = distanceService.current();
+      return current.enabled() && current.streamingMode() == net.modtale.simview.config.SimViewStreamingMode.DISK
+          && current.generateMissingChunks();
+    });
     tuningSystem = new SimViewTuningSystem(distanceService, diskStreamer);
     this.getEntityStoreRegistry().registerSystem(tuningSystem);
     this.getEntityStoreRegistry().registerSystem(new SimViewDiskStreamingSystem(distanceService, diskStreamer));

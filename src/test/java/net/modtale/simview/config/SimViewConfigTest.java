@@ -13,14 +13,19 @@ class SimViewConfigTest {
   @Test void nativeIsDefaultAndDiskRoundTripsWithoutChangingUnitsOrBudgets() {
     var nativeConfig = TestConfigs.config("{}");
     assertEquals(SimViewStreamingMode.NATIVE, nativeConfig.streamingMode());
+    assertFalse(nativeConfig.generateMissingChunks());
     assertEquals(1024, nativeConfig.nativeLoadingDistance(128, 1024));
     var disk = TestConfigs.config("{\"section-streaming\":{\"mode\":\"disk\"}}");
+    assertFalse(disk.generateMissingChunks());
     assertEquals(128, disk.nativeLoadingDistance(128, 1024));
     assertEquals(1024, disk.effectiveExtendedViewDistance(128, 1024));
     assertEquals(nativeConfig.targetViewDistanceBlocks(), disk.targetViewDistanceBlocks());
     assertEquals(nativeConfig.maxSectionSendsPerSecond(), disk.maxSectionSendsPerSecond());
     SimViewConfig.save(directory, disk);
     assertEquals(disk, SimViewConfig.load(directory, SimViewConfig.defaults(8)));
+    var generation = TestConfigs.config("{\"section-streaming\":{\"mode\":\"disk\",\"generate-missing-chunks\":true}}");
+    SimViewConfig.save(directory, generation);
+    assertTrue(SimViewConfig.load(directory, SimViewConfig.defaults(8)).generateMissingChunks());
     assertThrows(IllegalArgumentException.class, () -> TestConfigs.config(
         "{\"section-streaming\":{\"mode\":\"unknown\"}}"));
   }

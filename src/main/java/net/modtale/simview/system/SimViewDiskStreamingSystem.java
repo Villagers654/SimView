@@ -56,6 +56,7 @@ public final class SimViewDiskStreamingSystem extends EntityTickingSystem<Entity
     streamer.tick(store.getExternalData().getWorld(), ref, tracker, transform.getPosition(), dt,
         config.effectiveSimulationDistance(cap, requested),
         config.effectiveExtendedViewDistance(cap, requested, distances.activeTargetViewDistanceBlocks()),
-        new SimViewStreamingBudget.Budget(tracker.getMaxSectionsPerSecond(), tracker.getMaxSectionsPerTick()));
+        new SimViewStreamingBudget.Budget(tracker.getMaxSectionsPerSecond(), tracker.getMaxSectionsPerTick()),
+        config.generateMissingChunks());
   }
 }

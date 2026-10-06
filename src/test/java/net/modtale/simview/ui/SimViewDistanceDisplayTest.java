@@ -11,6 +11,45 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class SimViewDistanceDisplayTest {
+  @Test void diskGenerationVisibilityAndEditingFollowLiveModeAndRejectStaleNativeSelection() throws Exception {
+    var nativeConfig = TestConfigs.config("{}");
+    var diskConfig = TestConfigs.config("{\"section-streaming\":{\"mode\":\"disk\"}}");
+    var config = new java.util.concurrent.atomic.AtomicReference<>(nativeConfig);
+    var service = mock(SimViewDistanceService.class);
+    when(service.current()).thenAnswer(call -> config.get());
+    when(service.saveAndReload(any())).thenAnswer(call -> { config.set(call.getArgument(0)); return config.get(); });
+    var page = new SimViewConfigPage(mock(PlayerRef.class), service);
+    var advanced = SimViewConfigPage.class.getDeclaredField("advancedMode");
+    advanced.setAccessible(true); advanced.set(page, true);
+    var query = SimViewConfigPage.class.getDeclaredField("searchQuery");
+    query.setAccessible(true); query.set(page, "generatemissingchunks");
+    var render = SimViewConfigPage.class.getDeclaredMethod("renderList", UICommandBuilder.class, UIEventBuilder.class);
+    render.setAccessible(true);
+    var commands = mock(UICommandBuilder.class);
+    render.invoke(page, commands, mock(UIEventBuilder.class));
+    verify(commands, never()).append(eq("#IndexCards"), anyString());
+    config.set(diskConfig);
+    commands = mock(UICommandBuilder.class);
+    render.invoke(page, commands, mock(UIEventBuilder.class));
+    verify(commands, times(1)).append(eq("#IndexCards"), anyString());
+    var selected = SimViewConfigPage.class.getDeclaredField("selectedSettingId");
+    selected.setAccessible(true); selected.set(page, "generateMissingChunks");
+    var current = SimViewConfigPage.class.getDeclaredMethod("currentSetting"); current.setAccessible(true);
+    var setting = ((java.util.Optional<?>) current.invoke(page)).orElseThrow();
+    var pending = SimViewConfigPage.class.getDeclaredField("pendingBooleanValue");
+    pending.setAccessible(true); pending.set(page, true);
+    var apply = SimViewConfigPage.class.getDeclaredMethod("applyPending", setting.getClass());
+    apply.setAccessible(true);
+    assertEquals(true, apply.invoke(page, setting));
+    assertTrue(config.get().generateMissingChunks());
+    config.set(nativeConfig);
+    assertEquals(false, apply.invoke(page, setting));
+    verify(service, times(1)).saveAndReload(any());
+    var ensureVisible = SimViewConfigPage.class.getDeclaredMethod("ensureSelectionIsVisible");
+    ensureVisible.setAccessible(true); ensureVisible.invoke(page);
+    assertEquals("targetViewDistanceBlocks", selected.get(page));
+  }
+
   @Test void primarySettingsStayVisibleAboveAdvancedEvenWhenSearchHasNoMatches() throws Exception {
     var service = mock(SimViewDistanceService.class);
     when(service.current()).thenReturn(TestConfigs.config("{}"));
