@@ -478,20 +478,22 @@ public final class SimViewConfigPage
   }
 
   private void renderList(UICommandBuilder commandBuilder, UIEventBuilder eventBuilder) {
-    commandBuilder.clear("#IndexCards");
+    renderRows(commandBuilder, eventBuilder, "#PrimaryCards",
+        SETTINGS.stream().filter(setting -> SIMPLE_SETTING_IDS.contains(setting.id())).toList());
+    commandBuilder.set("#IndexList.Visible", advancedMode);
+    List<SettingDef> settings = advancedMode ? visibleSettings() : List.of();
+    commandBuilder.set("#NoResultsLabel.Visible", advancedMode && settings.isEmpty());
+    renderRows(commandBuilder, eventBuilder, "#IndexCards", settings);
+  }
 
-    List<SettingDef> visibleSettings = visibleSettings();
-    if (visibleSettings.isEmpty()) {
-      commandBuilder.set("#NoResultsLabel.Visible", true);
-      return;
-    }
-
-    commandBuilder.set("#NoResultsLabel.Visible", false);
+  private void renderRows(UICommandBuilder commandBuilder, UIEventBuilder eventBuilder,
+      String container, List<SettingDef> visibleSettings) {
+    commandBuilder.clear(container);
 
     for (int index = 0; index < visibleSettings.size(); index++) {
       SettingDef setting = visibleSettings.get(index);
-      commandBuilder.append("#IndexCards", UI_SETTING_ENTRY);
-      String row = "#IndexCards[" + index + "]";
+      commandBuilder.append(container, UI_SETTING_ENTRY);
+      String row = container + "[" + index + "]";
       commandBuilder.set(row + " #SettingName.Text", setting.label());
       commandBuilder.set(row + " #SettingValue.Text", valueAsDisplay(setting, distanceService.current()));
       commandBuilder.set(
@@ -549,15 +551,8 @@ public final class SimViewConfigPage
   }
 
   private List<SettingDef> visibleSettings() {
-    List<SettingDef> sourceSettings = SETTINGS;
-    if (!advancedMode) {
-      sourceSettings = new ArrayList<>();
-      for (SettingDef setting : SETTINGS) {
-        if (SIMPLE_SETTING_IDS.contains(setting.id())) {
-          sourceSettings.add(setting);
-        }
-      }
-    }
+    List<SettingDef> sourceSettings = SETTINGS.stream()
+        .filter(setting -> !SIMPLE_SETTING_IDS.contains(setting.id())).toList();
 
     if (searchQuery.isBlank()) {
       return sourceSettings;

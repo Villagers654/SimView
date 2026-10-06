@@ -1,12 +1,30 @@
-name: Build
+name: Build and release
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: simview-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      changed: ${{ steps.version.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - id: version
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: python3 .github/scripts/release.py metadata
   build:
+    needs: metadata
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -18,4 +36,40 @@ jobs:
           distribution: temurin
           java-version: '25'
       - uses: gradle/actions/setup-gradle@v6.4.0
+      - run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
       - run: bash gradlew --no-daemon --max-workers=2 -PhytaleVersion=${{ matrix.hytale }} clean build
+      - uses: actions/upload-artifact@v7.0.1
+        if: matrix.hytale == '0.6.8'
+        with:
+          name: release-jar
+          path: build/libs/SimView-${{ needs.metadata.outputs.version }}.jar
+          if-no-files-found: error
+          retention-days: 30
+  github-release:
+    needs: [metadata, build]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && needs.metadata.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: release-jar
+          path: build/libs
+      - run: python3 .github/scripts/release.py github
+        env:
+          GH_TOKEN: ${{ github.token }}
+  modtale-release:
+    needs: [metadata, github-release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: release-jar
+          path: build/libs
+      - run: python3 .github/scripts/release.py modtale
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODTALE_API_KEY: ${{ secrets.MODTALE_API_KEY }}

@@ -38,13 +38,18 @@ $C.@PageOverlay {
           );
         }
 
+        Group #PrimaryCards {
+          Anchor: (Width: 410, Top: 6);
+          LayoutMode: Top;
+        }
+
         $C.@TextButton #AdvancedToggleButton {
           Anchor: (Width: 150, Height: 24, Top: 5);
           Text: "Advanced: OFF";
         }
 
         Group #IndexList {
-          Anchor: (Width: 410, Height: 610, Top: 6);
+          Anchor: (Width: 410, Height: 450, Top: 6);
           LayoutMode: TopScrolling;
           ScrollbarStyle: $C.@DefaultScrollbarStyle;
 
