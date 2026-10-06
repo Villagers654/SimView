@@ -63,12 +63,21 @@ def assert_tag(repo, tag, sha):
     return True
 
 
+def find_release(repo, tag):
+    published = gh_json(f'repos/{repo}/releases/tags/{tag}')
+    if published is not None:
+        return published
+    # GitHub's by-tag endpoint excludes drafts, even for their creator.
+    drafts = gh_json(f'repos/{repo}/releases?per_page=100')
+    return next((item for item in drafts if item['tag_name'] == tag), None)
+
+
 def github(value):
     path, digest = artifact(value)
     repo, sha = os.environ['GITHUB_REPOSITORY'], os.environ['GITHUB_SHA']
     tag = f'v{value}'
     tagged = assert_tag(repo, tag, sha)
-    release = gh_json(f'repos/{repo}/releases/tags/{tag}')
+    release = find_release(repo, tag)
     if release and release['draft'] and release['target_commitish'] != sha:
         raise ValueError('Existing draft release belongs to a different commit')
     if not tagged:
@@ -83,7 +92,9 @@ def github(value):
                   'Advanced below the three primary settings.'] if value == '0.2.0' else ['--generate-notes'])
         run('gh', 'release', 'create', tag, '--repo', repo, '--target', sha,
             '--draft', '--title', f'SimView {value}', *notes)
-        release = gh_json(f'repos/{repo}/releases/tags/{tag}')
+        release = find_release(repo, tag)
+        if release is None:
+            raise RuntimeError('Created draft release could not be found')
     assert_tag(repo, tag, sha)
     assets = [item for item in release['assets'] if item['name'] == path.name]
     if assets:

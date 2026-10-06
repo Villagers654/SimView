@@ -1,0 +1,25 @@
+name: Retry Modtale publication
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: simview-modtale
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Download the published GitHub jar
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(python3 -c 'import sys; sys.path.insert(0, ".github/scripts"); import release; print(release.version())')
+          test "$(gh release view "v${version}" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft')" = "false"
+          gh release download "v${version}" --repo "$GITHUB_REPOSITORY" --pattern "SimView-${version}.jar" --dir build/libs
+      - run: python3 .github/scripts/release.py modtale
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODTALE_API_KEY: ${{ secrets.MODTALE_API_KEY }}

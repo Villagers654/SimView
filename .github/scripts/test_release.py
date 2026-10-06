@@ -41,6 +41,11 @@ class ReleaseTests(unittest.TestCase):
                 release.github('0.2.0')
             mutate.assert_not_called()
 
+    def test_draft_lookup_falls_back_to_release_list(self):
+        draft = {'tag_name': 'v0.2.0', 'draft': True}
+        with patch.object(release, 'gh_json', side_effect=[None, [draft]]):
+            self.assertEqual(draft, release.find_release('owner/repo', 'v0.2.0'))
+
     def test_modtale_retry_refuses_different_existing_file(self):
         with patch.dict(os.environ, {'MODTALE_API_KEY': 'test-placeholder'}), \
              patch.object(release, 'artifact', return_value=(Path('jar'), 'digest')), \
