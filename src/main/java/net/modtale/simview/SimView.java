@@ -9,6 +9,8 @@ import net.modtale.simview.config.SimViewConfigDirectory;
 import net.modtale.simview.permission.SimViewAccessControl;
 import net.modtale.simview.service.SimViewDistanceService;
 import net.modtale.simview.system.SimViewTuningSystem;
+import net.modtale.simview.system.SimViewDiskStreamingSystem;
+import net.modtale.simview.service.SimViewDiskStreamer;
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.hypixel.hytale.server.core.Message;
 import com.hypixel.hytale.server.core.event.events.player.AddPlayerToWorldEvent;
@@ -28,6 +30,7 @@ public final class SimView extends JavaPlugin {
 
   private SimViewDistanceService distanceService;
   private SimViewTuningSystem tuningSystem;
+  private SimViewDiskStreamer diskStreamer;
   private final Set<UUID> hintedPlayers = ConcurrentHashMap.newKeySet();
 
   public SimView(JavaPluginInit init) {
@@ -46,11 +49,13 @@ public final class SimView extends JavaPlugin {
     distanceService.applyServerViewDistanceCap();
 
     SimViewConfig config = distanceService.current();
-    tuningSystem = new SimViewTuningSystem(distanceService);
+    diskStreamer = new SimViewDiskStreamer();
+    tuningSystem = new SimViewTuningSystem(distanceService, diskStreamer);
     this.getEntityStoreRegistry().registerSystem(tuningSystem);
+    this.getEntityStoreRegistry().registerSystem(new SimViewDiskStreamingSystem(distanceService, diskStreamer));
     this.getCommandRegistry().registerCommand(new SimViewGuiCommand(distanceService));
     this.getCommandRegistry().registerCommand(new SimViewReloadCommand(distanceService));
-    this.getCommandRegistry().registerCommand(new SimViewStatusCommand(distanceService));
+    this.getCommandRegistry().registerCommand(new SimViewStatusCommand(distanceService, diskStreamer));
     this.getEventRegistry().registerGlobal(AddPlayerToWorldEvent.class, this::handleAddPlayerToWorld);
     this.getEventRegistry().registerGlobal(RemovedPlayerFromWorldEvent.class, this::handleRemovedPlayerFromWorld);
     this.getEventRegistry().registerGlobal(PlayerDisconnectEvent.class, this::handlePlayerDisconnect);
@@ -74,6 +79,7 @@ public final class SimView extends JavaPlugin {
       distanceService.restoreHytaleViewDistanceCap();
     }
 
+    if (diskStreamer != null) { diskStreamer.close(); }
     if (tuningSystem != null) {
       tuningSystem.restoreAll();
     }

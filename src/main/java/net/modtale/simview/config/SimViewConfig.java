@@ -43,13 +43,15 @@ public record SimViewConfig(
     double speedingNotSendBlocksPerTick,
     int speedingSectionSendsPerSecond,
     int speedingSectionSendsPerTick,
-    int speedingCooldownTicks) {
+    int speedingCooldownTicks,
+    SimViewStreamingMode streamingMode) {
 
   public static final int CHUNK_SIZE_BLOCKS = com.hypixel.hytale.math.util.ChunkUtil.SIZE;
   private static final String CONFIG_FILE = "simview.json";
   private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
   public SimViewConfig {
+    java.util.Objects.requireNonNull(streamingMode, "streamingMode");
     targetViewDistanceBlocks = boundedRadius(targetViewDistanceBlocks);
     targetSimulationDistanceBlocks = targetSimulationDistanceBlocks < 0 ? -1 : boundedRadius(targetSimulationDistanceBlocks);
     minimumTargetViewDistanceBlocks = boundedRadius(minimumTargetViewDistanceBlocks);
@@ -105,7 +107,8 @@ public record SimViewConfig(
         1.2D,
         0,
         0,
-        40);
+        40,
+        SimViewStreamingMode.NATIVE);
   }
 
   public static SimViewConfig load(Path dataDirectory) {
@@ -293,6 +296,7 @@ public record SimViewConfig(
     root.add("auto-adjustment", adjustment);
 
     JsonObject streaming = new JsonObject();
+    streaming.addProperty("mode", config.streamingMode().name().toLowerCase(java.util.Locale.ROOT));
     streaming.addProperty("despawn-entities", config.despawnEntitiesInColdChunks());
 
     JsonObject streamingBudget = new JsonObject();
@@ -421,7 +425,8 @@ public record SimViewConfig(
         nonNegativeDouble(doubleAt(speeding, "not-send-blocks-per-tick", defaults.speedingNotSendBlocksPerTick())),
         nonNegativeInt(intAt(speedingBudget, "section-sends-per-second", defaults.speedingSectionSendsPerSecond())),
         nonNegativeInt(intAt(speedingBudget, "section-sends-per-tick", defaults.speedingSectionSendsPerTick())),
-        nonNegativeInt(intAt(speeding, "cooldown-ticks", defaults.speedingCooldownTicks())));
+        nonNegativeInt(intAt(speeding, "cooldown-ticks", defaults.speedingCooldownTicks())),
+        SimViewStreamingMode.parse(stringAt(streaming, "mode", defaults.streamingMode().name())));
   }
 
   private static JsonObject objectAt(JsonObject parent, String key) {
@@ -429,6 +434,10 @@ public record SimViewConfig(
       return new JsonObject();
     }
     return parent.getAsJsonObject(key);
+  }
+
+  public int nativeLoadingDistance(int simulationDistanceBlocks, int viewDistanceBlocks) {
+    return streamingMode == SimViewStreamingMode.DISK ? simulationDistanceBlocks : viewDistanceBlocks;
   }
 
   private static int schemaVersion(JsonObject root) {

@@ -10,6 +10,21 @@ import org.junit.jupiter.api.io.TempDir;
 class SimViewConfigTest {
   @TempDir Path directory;
 
+  @Test void nativeIsDefaultAndDiskRoundTripsWithoutChangingUnitsOrBudgets() {
+    var nativeConfig = TestConfigs.config("{}");
+    assertEquals(SimViewStreamingMode.NATIVE, nativeConfig.streamingMode());
+    assertEquals(1024, nativeConfig.nativeLoadingDistance(128, 1024));
+    var disk = TestConfigs.config("{\"section-streaming\":{\"mode\":\"disk\"}}");
+    assertEquals(128, disk.nativeLoadingDistance(128, 1024));
+    assertEquals(1024, disk.effectiveExtendedViewDistance(128, 1024));
+    assertEquals(nativeConfig.targetViewDistanceBlocks(), disk.targetViewDistanceBlocks());
+    assertEquals(nativeConfig.maxSectionSendsPerSecond(), disk.maxSectionSendsPerSecond());
+    SimViewConfig.save(directory, disk);
+    assertEquals(disk, SimViewConfig.load(directory, SimViewConfig.defaults(8)));
+    assertThrows(IllegalArgumentException.class, () -> TestConfigs.config(
+        "{\"section-streaming\":{\"mode\":\"unknown\"}}"));
+  }
+
   @Test void legacyDistancesMigrateOnceWithoutChangingWorldDistancesOrExplicitBudgets() throws Exception {
     String oldJson = """
         {"core":{"target":{"view-distance-chunks":64,"simulation-distance-chunks":-1},

@@ -88,7 +88,7 @@ public final class SimViewDistanceService {
   public synchronized void applyServerViewDistanceCap() {
     if (closed) { return; }
     if (current().enabled()) {
-      setRuntimeMaxViewRadius(activeViewDistanceCap());
+      setRuntimeMaxViewRadius(current().nativeLoadingDistance(activeSimulationDistanceCap(), activeViewDistanceCap()));
     } else {
       serverConfig.setMaxViewRadius(originalHytaleViewRadius);
     }

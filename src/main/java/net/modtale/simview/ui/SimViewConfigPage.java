@@ -1,6 +1,7 @@
 package net.modtale.simview.ui;
 
 import net.modtale.simview.config.SimViewAdjustmentMode;
+import net.modtale.simview.config.SimViewStreamingMode;
 import net.modtale.simview.config.SimViewConfig;
 import net.modtale.simview.config.SimViewDistances;
 import net.modtale.simview.permission.SimViewAccessControl;
@@ -74,6 +75,8 @@ public final class SimViewConfigPage
               "Target: Simulation Distance (blocks)",
               SettingKind.INTEGER,
               "Ticking distance in blocks (0-2048, multiples of 32); -1 uses the native hot radius"),
+          new SettingDef("streamingMode", "Section Streaming: Mode", SettingKind.MODE,
+              "Native (default): live terrain and generation. Disk: saved terrain snapshots with lower retained world memory; no distant generation."),
           new SettingDef(
               "adjustmentMode",
               "Auto Mode: View",
@@ -398,7 +401,8 @@ public final class SimViewConfigPage
     SimViewConfig config = distanceService.current();
     pendingTextValue = valueAsDisplay(setting, config);
     pendingBooleanValue = booleanValue(setting.id(), config);
-    pendingEnumValue = modeValue(setting.id(), config).name();
+    pendingEnumValue = setting.id().equals("streamingMode")
+        ? config.streamingMode().name() : modeValue(setting.id(), config).name();
     pendingDirty = false;
   }
 
@@ -545,7 +549,10 @@ public final class SimViewConfigPage
     }
 
     if (setting.kind() == SettingKind.MODE) {
-      commandBuilder.set("#EnumEditor.Entries", modeEntries());
+      commandBuilder.set("#EnumEditor.Entries", setting.id().equals("streamingMode")
+          ? List.of(new DropdownEntryInfo(LocalizableString.fromString("Native"), "NATIVE"),
+              new DropdownEntryInfo(LocalizableString.fromString("Disk (saved snapshots)"), "DISK"))
+          : modeEntries());
       commandBuilder.set("#EnumEditor.Value", pendingEnumValue);
     }
   }
@@ -604,6 +611,21 @@ public final class SimViewConfigPage
   private boolean applyMode(SettingDef setting, String rawMode) {
     if (setting.kind() != SettingKind.MODE || rawMode == null) {
       return false;
+    }
+
+    if (setting.id().equals("streamingMode")) {
+      try {
+        ConfigDraft draft = new ConfigDraft(distanceService.current());
+        draft.streamingMode = SimViewStreamingMode.parse(rawMode);
+        distanceService.saveAndReload(draft.toConfig());
+        feedback = "Updated streaming mode to " + draft.streamingMode.name().toLowerCase(Locale.ROOT) + ".";
+        pendingDirty = false;
+        resetPendingForSelection();
+        return true;
+      } catch (IllegalArgumentException exception) {
+        feedback = exception.getMessage();
+        return false;
+      }
     }
 
     SimViewAdjustmentMode mode = SimViewAdjustmentMode.fromProperty(rawMode, null);
@@ -767,6 +789,7 @@ public final class SimViewConfigPage
       case "disableJoinHintMessage" -> Boolean.toString(config.disableJoinHintMessage());
       case "targetViewDistanceBlocks" -> Integer.toString(config.targetViewDistanceBlocks());
       case "targetSimulationDistanceBlocks" -> Integer.toString(config.targetSimulationDistanceBlocks());
+      case "streamingMode" -> config.streamingMode().name().toLowerCase(Locale.ROOT);
       case "adjustmentMode" -> config.adjustmentMode().name().toLowerCase(Locale.ROOT);
       case "simulationAdjustmentMode" ->
           config.simulationAdjustmentMode().name().toLowerCase(Locale.ROOT);
@@ -852,6 +875,7 @@ public final class SimViewConfigPage
     private boolean disableJoinHintMessage;
     private int targetViewDistanceBlocks;
     private int targetSimulationDistanceBlocks;
+    private SimViewStreamingMode streamingMode;
     private SimViewAdjustmentMode adjustmentMode;
     private SimViewAdjustmentMode simulationAdjustmentMode;
     private int minimumTargetViewDistanceBlocks;
@@ -885,6 +909,7 @@ public final class SimViewConfigPage
       this.disableJoinHintMessage = config.disableJoinHintMessage();
       this.targetViewDistanceBlocks = config.targetViewDistanceBlocks();
       this.targetSimulationDistanceBlocks = config.targetSimulationDistanceBlocks();
+      this.streamingMode = config.streamingMode();
       this.adjustmentMode = config.adjustmentMode();
       this.simulationAdjustmentMode = config.simulationAdjustmentMode();
       this.minimumTargetViewDistanceBlocks = config.minimumTargetViewDistanceBlocks();
@@ -947,7 +972,8 @@ public final class SimViewConfigPage
           speedingNotSendBlocksPerTick,
           speedingSectionSendsPerSecond,
           speedingSectionSendsPerTick,
-          speedingCooldownTicks);
+          speedingCooldownTicks,
+          streamingMode);
     }
   }
 

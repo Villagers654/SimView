@@ -5,6 +5,8 @@ import net.modtale.simview.config.SimViewDistances;
 import net.modtale.simview.service.SimViewDistanceService;
 import net.modtale.simview.service.SimViewStreamingBudget;
 import net.modtale.simview.service.SimViewTrackerSettings;
+import net.modtale.simview.service.SimViewDiskStreamer;
+import net.modtale.simview.config.SimViewStreamingMode;
 import com.hypixel.hytale.component.ArchetypeChunk;
 import com.hypixel.hytale.component.CommandBuffer;
 import com.hypixel.hytale.component.ComponentType;
@@ -41,11 +43,13 @@ public final class SimViewTuningSystem extends EntityTickingSystem<EntityStore> 
       TransformComponent.getComponentType();
 
   private final SimViewDistanceService distanceService;
+  private final SimViewDiskStreamer diskStreamer;
   private final ConcurrentHashMap<UUID, PlayerTuningState> tuningStates = new ConcurrentHashMap<>();
   private volatile boolean closed;
 
-  public SimViewTuningSystem(SimViewDistanceService distanceService) {
+  public SimViewTuningSystem(SimViewDistanceService distanceService, SimViewDiskStreamer diskStreamer) {
     this.distanceService = distanceService;
+    this.diskStreamer = diskStreamer;
   }
 
   @Override
@@ -123,13 +127,16 @@ public final class SimViewTuningSystem extends EntityTickingSystem<EntityStore> 
         requestedViewDistance);
 
     if (!config.enabled()) {
+      diskStreamer.leave(playerRef);
       advertiseViewDistance(playerRef, tuningState, serverLimitedViewDistance);
       tuningState.restore();
       return;
     }
 
     tuningState.modified = true;
-    setIfChangedMinLoadedRadius(chunkTracker, effectiveViewDistance);
+    if (config.streamingMode() != SimViewStreamingMode.DISK) { diskStreamer.leave(playerRef); }
+    setIfChangedMinLoadedRadius(chunkTracker,
+        config.nativeLoadingDistance(effectiveSimulationDistance, effectiveViewDistance));
     setIfChangedMaxHotLoadedRadius(chunkTracker, effectiveSimulationDistance);
     SimViewStreamingBudget.Budget budget = tuningState.streamingBudget.update(
         transformComponent.getPosition(), config,
@@ -156,11 +163,13 @@ public final class SimViewTuningSystem extends EntityTickingSystem<EntityStore> 
   public synchronized void unload(PlayerRef playerRef) {
     UUID playerUuid = playerRef.getUuid();
     if (playerUuid != null) {
+      diskStreamer.discard(playerUuid);
       tuningStates.remove(playerUuid);
     }
   }
 
   public synchronized void restoreBeforeTransfer(PlayerRef playerRef) {
+    diskStreamer.leave(playerRef);
     PlayerTuningState state = tuningStates.remove(playerRef.getUuid());
     if (state != null && state.modified && state.originalSettings != null) {
       state.originalSettings.restore(state.chunkTracker);
