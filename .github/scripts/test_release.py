@@ -71,6 +71,17 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'redirects are refused'):
             release.NoRedirect().redirect_request(None, None, 302, '', {}, 'https://other.example')
 
+    def test_modtale_requests_identify_the_publisher(self):
+        from unittest.mock import MagicMock
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = b'{}'
+        with patch.object(release.urllib.request, 'build_opener') as opener:
+            opener().open.return_value = response
+            release.modtale_request('/meta/game-versions', 'test-placeholder')
+            request = opener().open.call_args.args[0]
+            self.assertIn('SimView-release', request.get_header('User-agent'))
+            self.assertEqual('test-placeholder', request.get_header('X-modtale-key'))
+
 
 if __name__ == '__main__':
     unittest.main()

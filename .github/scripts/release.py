@@ -118,7 +118,8 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def modtale_request(route, key, data=None, content_type=None, allow_missing=False):
-    headers = {'X-MODTALE-KEY': key, 'Accept': 'application/json'}
+    headers = {'X-MODTALE-KEY': key, 'Accept': 'application/json',
+               'User-Agent': 'SimView-release (+https://github.com/Villagers654/SimView)'}
     if content_type:
         headers['Content-Type'] = content_type
     request = urllib.request.Request(API + route, data=data, headers=headers)
@@ -130,7 +131,7 @@ def modtale_request(route, key, data=None, content_type=None, allow_missing=Fals
         if allow_missing and error.code == 404:
             return None
         # Do not print response bodies or requests containing authentication headers.
-        raise RuntimeError(f'Modtale API returned HTTP {error.code}') from None
+        raise RuntimeError(f'Modtale API {route} returned HTTP {error.code}') from None
 
 
 def modtale(value):
