@@ -2,6 +2,7 @@ package net.modtale.simview.ui;
 
 import net.modtale.simview.config.SimViewAdjustmentMode;
 import net.modtale.simview.config.SimViewConfig;
+import net.modtale.simview.config.SimViewDistances;
 import net.modtale.simview.permission.SimViewAccessControl;
 import net.modtale.simview.service.SimViewAutoTuner;
 import net.modtale.simview.service.SimViewDistanceService;
@@ -45,8 +46,8 @@ public final class SimViewConfigPage
 
   private static final Set<String> SIMPLE_SETTING_IDS =
       Set.of(
-          "targetViewDistanceChunks",
-          "targetSimulationDistanceChunks",
+          "targetViewDistanceBlocks",
+          "targetSimulationDistanceBlocks",
           "disableJoinHintMessage");
 
   private static final List<SettingDef> SETTINGS =
@@ -64,15 +65,15 @@ public final class SimViewConfigPage
               SettingKind.BOOLEAN,
               "Disable the /simview tip message shown when players join"),
           new SettingDef(
-              "targetViewDistanceChunks",
-              "Target: View Distance (chunks)",
+              "targetViewDistanceBlocks",
+              "Target: View Distance (blocks)",
               SettingKind.INTEGER,
-              "SimView cold+hot target view distance"),
+              "Visible distance in blocks (0-2048); rounded down to multiples of 32"),
           new SettingDef(
-              "targetSimulationDistanceChunks",
-              "Target: Simulation Distance (chunks)",
+              "targetSimulationDistanceBlocks",
+              "Target: Simulation Distance (blocks)",
               SettingKind.INTEGER,
-              "Hot/ticking distance target; -1 uses the native hot radius"),
+              "Ticking distance in blocks (0-2048, multiples of 32); -1 uses the native hot radius"),
           new SettingDef(
               "adjustmentMode",
               "Auto Mode: View",
@@ -84,25 +85,25 @@ public final class SimViewConfigPage
               SettingKind.MODE,
               "Auto adjustment mode for simulation distance"),
           new SettingDef(
-              "minimumTargetViewDistanceChunks",
-              "Limit Min: View Distance",
+              "minimumTargetViewDistanceBlocks",
+              "Limit Min: View Distance (blocks)",
               SettingKind.INTEGER,
-              "Minimum clamp for view target"),
+              "Minimum view distance in blocks (0-2048); rounded down to multiples of 32"),
           new SettingDef(
-              "maximumTargetViewDistanceChunks",
-              "Limit Max: View Distance",
+              "maximumTargetViewDistanceBlocks",
+              "Limit Max: View Distance (blocks)",
               SettingKind.INTEGER,
-              "Maximum clamp for view target"),
+              "Maximum view distance in blocks (0-2048); rounded down to multiples of 32"),
           new SettingDef(
-              "minimumTargetSimulationDistanceChunks",
-              "Limit Min: Simulation Distance",
+              "minimumTargetSimulationDistanceBlocks",
+              "Limit Min: Simulation Distance (blocks)",
               SettingKind.INTEGER,
-              "Minimum clamp for simulation target"),
+              "Minimum simulation distance in blocks (0-2048); rounded down to multiples of 32"),
           new SettingDef(
-              "maximumTargetSimulationDistanceChunks",
-              "Limit Max: Simulation Distance",
+              "maximumTargetSimulationDistanceBlocks",
+              "Limit Max: Simulation Distance (blocks)",
               SettingKind.INTEGER,
-              "Maximum clamp for simulation target"),
+              "Maximum simulation distance in blocks (0-2048); rounded down to multiples of 32"),
           new SettingDef(
               "adjustmentTicksPerCheck",
               "Auto Cadence: Ticks Per Check",
@@ -172,12 +173,12 @@ public final class SimViewConfigPage
               "maxSectionSendsPerSecond",
               "Section Streaming: Sends Per Second",
               SettingKind.INTEGER,
-              "Section budget per second"),
+              "Section budget per second; 0 preserves the native connection budget"),
           new SettingDef(
               "maxSectionSendsPerTick",
               "Section Streaming: Sends Per Tick",
               SettingKind.INTEGER,
-              "Section budget per tick"),
+              "Section budget per tick; 0 preserves the native budget"),
           new SettingDef(
               "despawnEntitiesInColdChunks",
               "Cold Streaming: Despawn Entities",
@@ -192,12 +193,12 @@ public final class SimViewConfigPage
               "speedingSectionSendsPerSecond",
               "Speeding: Sends Per Second",
               SettingKind.INTEGER,
-              "Section budget per second while speeding"),
+              "Section budget per second while speeding; 0 inherits the normal budget"),
           new SettingDef(
               "speedingSectionSendsPerTick",
               "Speeding: Sends Per Tick",
               SettingKind.INTEGER,
-              "Section budget per tick while speeding"),
+              "Section budget per tick while speeding; 0 inherits the normal budget"),
           new SettingDef(
               "speedingCooldownTicks",
               "Speeding: Cooldown Ticks",
@@ -209,7 +210,7 @@ public final class SimViewConfigPage
   private final SimViewDistanceService distanceService;
 
   private String searchQuery = "";
-  private String selectedSettingId = "targetViewDistanceChunks";
+  private String selectedSettingId = "targetViewDistanceBlocks";
   private boolean advancedMode;
   private String feedback = "Choose a setting and click Apply to save.";
   private String pendingTextValue = "";
@@ -304,7 +305,7 @@ public final class SimViewConfigPage
     if (ACTION_TOGGLE_ADVANCED.equals(data.action)) {
       advancedMode = !advancedMode;
       if (!advancedMode && !SIMPLE_SETTING_IDS.contains(selectedSettingId)) {
-        selectedSettingId = "targetViewDistanceChunks";
+        selectedSettingId = "targetViewDistanceBlocks";
         resetPendingForSelection();
       }
       rerender();
@@ -403,7 +404,7 @@ public final class SimViewConfigPage
 
   private void ensureSelectionIsVisible() {
     if (!advancedMode && !SIMPLE_SETTING_IDS.contains(selectedSettingId)) {
-      selectedSettingId = "targetViewDistanceChunks";
+      selectedSettingId = "targetViewDistanceBlocks";
       resetPendingForSelection();
     }
   }
@@ -428,19 +429,19 @@ public final class SimViewConfigPage
     commandBuilder.set("#StatusEnabled.Text", config.enabled() ? "Enabled" : "Disabled");
     commandBuilder.set(
         "#StatusConfiguredSimulationDistance.Text",
-        formatDistance(distanceService.hytaleSimulationDistanceChunks()));
+        formatDistance(distanceService.hytaleSimulationDistanceBlocks()));
     commandBuilder.set(
         "#StatusActiveSimulationDistance.Text",
         formatDistance(distanceService.activeSimulationDistanceCap()));
     commandBuilder.set(
-        "#StatusConfiguredSimulationTarget.Text", formatDistance(config.targetSimulationDistanceChunks()));
+        "#StatusConfiguredSimulationTarget.Text", formatDistance(config.targetSimulationDistanceBlocks()));
     commandBuilder.set(
         "#StatusActiveSimulationTarget.Text",
-        formatDistance(distanceService.activeTargetSimulationDistanceChunks()));
+        formatDistance(distanceService.activeTargetSimulationDistanceBlocks()));
     commandBuilder.set(
-        "#StatusConfiguredViewTarget.Text", formatDistance(config.targetViewDistanceChunks()));
+        "#StatusConfiguredViewTarget.Text", formatDistance(config.targetViewDistanceBlocks()));
     commandBuilder.set(
-        "#StatusActiveViewTarget.Text", formatDistance(distanceService.activeTargetViewDistanceChunks()));
+        "#StatusActiveViewTarget.Text", formatDistance(distanceService.activeTargetViewDistanceBlocks()));
     commandBuilder.set(
         "#StatusViewMode.Text",
         config.adjustmentMode().name().toLowerCase(Locale.ROOT)
@@ -646,17 +647,17 @@ public final class SimViewConfigPage
 
     try {
       switch (setting.id()) {
-        case "targetViewDistanceChunks" -> draft.targetViewDistanceChunks = nonNegativeInt(rawValue);
-        case "targetSimulationDistanceChunks" ->
-            draft.targetSimulationDistanceChunks = minInt(rawValue, -1);
-        case "minimumTargetViewDistanceChunks" ->
-            draft.minimumTargetViewDistanceChunks = nonNegativeInt(rawValue);
-        case "maximumTargetViewDistanceChunks" ->
-            draft.maximumTargetViewDistanceChunks = nonNegativeInt(rawValue);
-        case "minimumTargetSimulationDistanceChunks" ->
-            draft.minimumTargetSimulationDistanceChunks = nonNegativeInt(rawValue);
-        case "maximumTargetSimulationDistanceChunks" ->
-            draft.maximumTargetSimulationDistanceChunks = nonNegativeInt(rawValue);
+        case "targetViewDistanceBlocks" -> draft.targetViewDistanceBlocks = nonNegativeInt(rawValue);
+        case "targetSimulationDistanceBlocks" ->
+            draft.targetSimulationDistanceBlocks = minInt(rawValue, -1);
+        case "minimumTargetViewDistanceBlocks" ->
+            draft.minimumTargetViewDistanceBlocks = nonNegativeInt(rawValue);
+        case "maximumTargetViewDistanceBlocks" ->
+            draft.maximumTargetViewDistanceBlocks = nonNegativeInt(rawValue);
+        case "minimumTargetSimulationDistanceBlocks" ->
+            draft.minimumTargetSimulationDistanceBlocks = nonNegativeInt(rawValue);
+        case "maximumTargetSimulationDistanceBlocks" ->
+            draft.maximumTargetSimulationDistanceBlocks = nonNegativeInt(rawValue);
         case "adjustmentTicksPerCheck" -> draft.adjustmentTicksPerCheck = positiveInt(rawValue);
         case "adjustmentStartupDelayTicks" ->
             draft.adjustmentStartupDelayTicks = nonNegativeInt(rawValue);
@@ -680,13 +681,13 @@ public final class SimViewConfigPage
             draft.reactiveMsptCollectionPeriodTicks = positiveInt(rawValue);
         case "reactiveMsptPredictionHistoryMinutes" ->
             draft.reactiveMsptPredictionHistoryMinutes = positiveInt(rawValue);
-        case "maxSectionSendsPerSecond" -> draft.maxSectionSendsPerSecond = positiveInt(rawValue);
-        case "maxSectionSendsPerTick" -> draft.maxSectionSendsPerTick = positiveInt(rawValue);
+        case "maxSectionSendsPerSecond" -> draft.maxSectionSendsPerSecond = nonNegativeInt(rawValue);
+        case "maxSectionSendsPerTick" -> draft.maxSectionSendsPerTick = nonNegativeInt(rawValue);
         case "speedingNotSendBlocksPerTick" ->
             draft.speedingNotSendBlocksPerTick = nonNegativeDouble(rawValue);
         case "speedingSectionSendsPerSecond" ->
-            draft.speedingSectionSendsPerSecond = positiveInt(rawValue);
-        case "speedingSectionSendsPerTick" -> draft.speedingSectionSendsPerTick = positiveInt(rawValue);
+            draft.speedingSectionSendsPerSecond = nonNegativeInt(rawValue);
+        case "speedingSectionSendsPerTick" -> draft.speedingSectionSendsPerTick = nonNegativeInt(rawValue);
         case "speedingCooldownTicks" -> draft.speedingCooldownTicks = nonNegativeInt(rawValue);
         default -> {
           feedback = "This setting is not edited with a text value.";
@@ -769,19 +770,19 @@ public final class SimViewConfigPage
       case "enabled" -> Boolean.toString(config.enabled());
       case "guiEnabled" -> Boolean.toString(config.guiEnabled());
       case "disableJoinHintMessage" -> Boolean.toString(config.disableJoinHintMessage());
-      case "targetViewDistanceChunks" -> Integer.toString(config.targetViewDistanceChunks());
-      case "targetSimulationDistanceChunks" -> Integer.toString(config.targetSimulationDistanceChunks());
+      case "targetViewDistanceBlocks" -> Integer.toString(config.targetViewDistanceBlocks());
+      case "targetSimulationDistanceBlocks" -> Integer.toString(config.targetSimulationDistanceBlocks());
       case "adjustmentMode" -> config.adjustmentMode().name().toLowerCase(Locale.ROOT);
       case "simulationAdjustmentMode" ->
           config.simulationAdjustmentMode().name().toLowerCase(Locale.ROOT);
-      case "minimumTargetViewDistanceChunks" ->
-          Integer.toString(config.minimumTargetViewDistanceChunks());
-      case "maximumTargetViewDistanceChunks" ->
-          Integer.toString(config.maximumTargetViewDistanceChunks());
-      case "minimumTargetSimulationDistanceChunks" ->
-          Integer.toString(config.minimumTargetSimulationDistanceChunks());
-      case "maximumTargetSimulationDistanceChunks" ->
-          Integer.toString(config.maximumTargetSimulationDistanceChunks());
+      case "minimumTargetViewDistanceBlocks" ->
+          Integer.toString(config.minimumTargetViewDistanceBlocks());
+      case "maximumTargetViewDistanceBlocks" ->
+          Integer.toString(config.maximumTargetViewDistanceBlocks());
+      case "minimumTargetSimulationDistanceBlocks" ->
+          Integer.toString(config.minimumTargetSimulationDistanceBlocks());
+      case "maximumTargetSimulationDistanceBlocks" ->
+          Integer.toString(config.maximumTargetSimulationDistanceBlocks());
       case "adjustmentTicksPerCheck" -> Integer.toString(config.adjustmentTicksPerCheck());
       case "adjustmentStartupDelayTicks" -> Integer.toString(config.adjustmentStartupDelayTicks());
       case "adjustmentPassedChecksForIncrease" ->
@@ -817,8 +818,8 @@ public final class SimViewConfigPage
     };
   }
 
-  private static String formatDistance(int chunks) {
-    return chunks + " chunks (" + chunks * SimViewConfig.CHUNK_SIZE_BLOCKS + " blocks)";
+  static String formatDistance(int blocks) {
+    return SimViewDistances.format(blocks);
   }
 
   private static boolean booleanValue(String settingId, SimViewConfig config) {
@@ -854,14 +855,14 @@ public final class SimViewConfigPage
     private boolean enabled;
     private boolean guiEnabled;
     private boolean disableJoinHintMessage;
-    private int targetViewDistanceChunks;
-    private int targetSimulationDistanceChunks;
+    private int targetViewDistanceBlocks;
+    private int targetSimulationDistanceBlocks;
     private SimViewAdjustmentMode adjustmentMode;
     private SimViewAdjustmentMode simulationAdjustmentMode;
-    private int minimumTargetViewDistanceChunks;
-    private int maximumTargetViewDistanceChunks;
-    private int minimumTargetSimulationDistanceChunks;
-    private int maximumTargetSimulationDistanceChunks;
+    private int minimumTargetViewDistanceBlocks;
+    private int maximumTargetViewDistanceBlocks;
+    private int minimumTargetSimulationDistanceBlocks;
+    private int maximumTargetSimulationDistanceBlocks;
     private int adjustmentTicksPerCheck;
     private int adjustmentStartupDelayTicks;
     private int adjustmentPassedChecksForIncrease;
@@ -887,14 +888,14 @@ public final class SimViewConfigPage
       this.enabled = config.enabled();
       this.guiEnabled = config.guiEnabled();
       this.disableJoinHintMessage = config.disableJoinHintMessage();
-      this.targetViewDistanceChunks = config.targetViewDistanceChunks();
-      this.targetSimulationDistanceChunks = config.targetSimulationDistanceChunks();
+      this.targetViewDistanceBlocks = config.targetViewDistanceBlocks();
+      this.targetSimulationDistanceBlocks = config.targetSimulationDistanceBlocks();
       this.adjustmentMode = config.adjustmentMode();
       this.simulationAdjustmentMode = config.simulationAdjustmentMode();
-      this.minimumTargetViewDistanceChunks = config.minimumTargetViewDistanceChunks();
-      this.maximumTargetViewDistanceChunks = config.maximumTargetViewDistanceChunks();
-      this.minimumTargetSimulationDistanceChunks = config.minimumTargetSimulationDistanceChunks();
-      this.maximumTargetSimulationDistanceChunks = config.maximumTargetSimulationDistanceChunks();
+      this.minimumTargetViewDistanceBlocks = config.minimumTargetViewDistanceBlocks();
+      this.maximumTargetViewDistanceBlocks = config.maximumTargetViewDistanceBlocks();
+      this.minimumTargetSimulationDistanceBlocks = config.minimumTargetSimulationDistanceBlocks();
+      this.maximumTargetSimulationDistanceBlocks = config.maximumTargetSimulationDistanceBlocks();
       this.adjustmentTicksPerCheck = config.adjustmentTicksPerCheck();
       this.adjustmentStartupDelayTicks = config.adjustmentStartupDelayTicks();
       this.adjustmentPassedChecksForIncrease = config.adjustmentPassedChecksForIncrease();
@@ -924,14 +925,14 @@ public final class SimViewConfigPage
           enabled,
           guiEnabled,
           disableJoinHintMessage,
-          targetViewDistanceChunks,
-          targetSimulationDistanceChunks,
+          targetViewDistanceBlocks,
+          targetSimulationDistanceBlocks,
           adjustmentMode,
           simulationAdjustmentMode,
-          minimumTargetViewDistanceChunks,
-          maximumTargetViewDistanceChunks,
-          minimumTargetSimulationDistanceChunks,
-          maximumTargetSimulationDistanceChunks,
+          minimumTargetViewDistanceBlocks,
+          maximumTargetViewDistanceBlocks,
+          minimumTargetSimulationDistanceBlocks,
+          maximumTargetSimulationDistanceBlocks,
           adjustmentTicksPerCheck,
           adjustmentStartupDelayTicks,
           adjustmentPassedChecksForIncrease,

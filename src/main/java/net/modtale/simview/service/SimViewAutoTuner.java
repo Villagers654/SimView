@@ -2,6 +2,7 @@ package net.modtale.simview.service;
 
 import net.modtale.simview.config.SimViewAdjustmentMode;
 import net.modtale.simview.config.SimViewConfig;
+import net.modtale.simview.config.SimViewDistances;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Map;
@@ -14,14 +15,14 @@ public final class SimViewAutoTuner {
   private static final long STALE_PLAYER_TICKS = 6000L;
   private static final long STALE_PLAYER_PRUNE_INTERVAL_TICKS = 200L;
 
-  private final int configuredHytaleViewDistanceChunks;
+  private final int configuredHytaleViewDistanceBlocks;
   private final SimViewMsptTracker msptTracker;
   private final ConcurrentHashMap<UUID, PlayerSample> playerSamples = new ConcurrentHashMap<>();
   private final ConcurrentHashMap<UUID, WorldTickSample> worldLastTick = new ConcurrentHashMap<>();
   private final Deque<MsptSectionRecord> msptChunkHistory = new ArrayDeque<>();
 
-  private volatile int activeTargetViewDistanceChunks;
-  private volatile int activeTargetSimulationDistanceChunks;
+  private volatile int activeTargetViewDistanceBlocks;
+  private volatile int activeTargetSimulationDistanceBlocks;
   private volatile long observedServerTicks;
   private long lastCheckTick;
   private long lastStalePlayerPruneTick;
@@ -35,13 +36,13 @@ public final class SimViewAutoTuner {
   private AdjustmentCandidate lastSimulationCandidate = AdjustmentCandidate.STAY;
   private double lastObservedMspt = 50.0D;
 
-  public SimViewAutoTuner(int configuredHytaleViewDistanceChunks, SimViewConfig config) {
-    this.configuredHytaleViewDistanceChunks = Math.max(0, configuredHytaleViewDistanceChunks);
+  public SimViewAutoTuner(int configuredHytaleViewDistanceBlocks, SimViewConfig config) {
+    this.configuredHytaleViewDistanceBlocks = Math.max(0, configuredHytaleViewDistanceBlocks);
     this.msptTracker = new SimViewMsptTracker(config.reactiveMsptCollectionPeriodTicks());
-    this.activeTargetSimulationDistanceChunks =
-        clampSimulationTarget(config, config.targetSimulationDistanceChunks(), Integer.MAX_VALUE);
-    this.activeTargetViewDistanceChunks =
-        clampViewTarget(config, config.targetViewDistanceChunks(), activeTargetSimulationDistanceChunks);
+    this.activeTargetSimulationDistanceBlocks =
+        clampSimulationTarget(config, config.targetSimulationDistanceBlocks(), Integer.MAX_VALUE);
+    this.activeTargetViewDistanceBlocks =
+        clampViewTarget(config, config.targetViewDistanceBlocks(), activeTargetSimulationDistanceBlocks);
     normalizeTargets(config);
   }
 
@@ -49,16 +50,16 @@ public final class SimViewAutoTuner {
     msptTracker.setCollectionPeriodTicks(config.reactiveMsptCollectionPeriodTicks());
 
     if (config.simulationAdjustmentMode() == SimViewAdjustmentMode.OFF) {
-      activeTargetSimulationDistanceChunks =
-          clampSimulationTarget(config, config.targetSimulationDistanceChunks(), Integer.MAX_VALUE);
+      activeTargetSimulationDistanceBlocks =
+          clampSimulationTarget(config, config.targetSimulationDistanceBlocks(), Integer.MAX_VALUE);
       simulationConsecutiveIncreaseChecks = 0;
       simulationConsecutiveDecreaseChecks = 0;
       lastSimulationCandidate = AdjustmentCandidate.STAY;
     }
 
     if (config.adjustmentMode() == SimViewAdjustmentMode.OFF) {
-      activeTargetViewDistanceChunks =
-          clampViewTarget(config, config.targetViewDistanceChunks(), activeTargetSimulationDistanceChunks);
+      activeTargetViewDistanceBlocks =
+          clampViewTarget(config, config.targetViewDistanceBlocks(), activeTargetSimulationDistanceBlocks);
       viewConsecutiveIncreaseChecks = 0;
       viewConsecutiveDecreaseChecks = 0;
       lastViewCandidate = AdjustmentCandidate.STAY;
@@ -72,12 +73,12 @@ public final class SimViewAutoTuner {
     }
   }
 
-  public int activeTargetViewDistanceChunks() {
-    return activeTargetViewDistanceChunks;
+  public int activeTargetViewDistanceBlocks() {
+    return activeTargetViewDistanceBlocks;
   }
 
-  public int activeTargetSimulationDistanceChunks() {
-    return activeTargetSimulationDistanceChunks;
+  public int activeTargetSimulationDistanceBlocks() {
+    return activeTargetSimulationDistanceBlocks;
   }
 
   public synchronized boolean observe(
@@ -86,7 +87,7 @@ public final class SimViewAutoTuner {
       long worldTick,
       float deltaSeconds,
       SimViewConfig config,
-      int requestedViewDistanceChunks) {
+      int requestedViewDistanceBlocks) {
     if (playerUuid == null) {
       return false;
     }
@@ -95,13 +96,13 @@ public final class SimViewAutoTuner {
     PlayerSample playerSample = playerSamples.get(playerUuid);
     if (playerSample == null) {
       PlayerSample newSample =
-          new PlayerSample(Math.max(0, requestedViewDistanceChunks), observedServerTicks, resolvedWorldUuid);
+          new PlayerSample(Math.max(0, requestedViewDistanceBlocks), observedServerTicks, resolvedWorldUuid);
       PlayerSample previousSample = playerSamples.putIfAbsent(playerUuid, newSample);
       playerSample = previousSample == null ? newSample : previousSample;
     }
     if (playerSample != null) {
       playerSample.worldUuid = resolvedWorldUuid;
-      playerSample.requestedViewDistanceChunks = Math.max(0, requestedViewDistanceChunks);
+      playerSample.requestedViewDistanceBlocks = Math.max(0, requestedViewDistanceBlocks);
       playerSample.lastSeenServerTick = observedServerTicks;
     }
 
@@ -125,12 +126,12 @@ public final class SimViewAutoTuner {
     long coldTarget = Math.max(0L, config.proactiveGlobalColdSectionCountTarget());
     long tickingTarget = Math.max(0L, config.proactiveGlobalTickingSectionCountTarget());
     long estimatedColdSections =
-        estimateGlobalColdSections(activeTargetViewDistanceChunks, activeTargetSimulationDistanceChunks);
-    long estimatedTickingSections = estimateGlobalTickingSections(activeTargetSimulationDistanceChunks);
+        estimateGlobalColdSections(activeTargetViewDistanceBlocks, activeTargetSimulationDistanceBlocks);
+    long estimatedTickingSections = estimateGlobalTickingSections(activeTargetSimulationDistanceBlocks);
 
     return new AutoTuneSnapshot(
-        activeTargetViewDistanceChunks,
-        activeTargetSimulationDistanceChunks,
+        activeTargetViewDistanceBlocks,
+        activeTargetSimulationDistanceBlocks,
         lastObservedMspt,
         estimatedColdSections,
         coldTarget,
@@ -203,11 +204,11 @@ public final class SimViewAutoTuner {
   }
 
   private boolean runAdjustmentCheck(SimViewConfig config) {
-    int previousViewTarget = activeTargetViewDistanceChunks;
-    int previousSimulationTarget = activeTargetSimulationDistanceChunks;
+    int previousViewTarget = activeTargetViewDistanceBlocks;
+    int previousSimulationTarget = activeTargetSimulationDistanceBlocks;
     long currentColdChunks =
-        estimateGlobalColdSections(activeTargetViewDistanceChunks, activeTargetSimulationDistanceChunks);
-    long currentTickingChunks = estimateGlobalTickingSections(activeTargetSimulationDistanceChunks);
+        estimateGlobalColdSections(activeTargetViewDistanceBlocks, activeTargetSimulationDistanceBlocks);
+    long currentTickingChunks = estimateGlobalTickingSections(activeTargetSimulationDistanceBlocks);
     msptChunkHistory.addLast(
         new MsptSectionRecord(System.currentTimeMillis(), lastObservedMspt, currentColdChunks, currentTickingChunks));
     purgeMsptHistory(config.reactiveMsptPredictionHistoryMinutes());
@@ -222,8 +223,8 @@ public final class SimViewAutoTuner {
     applyViewCandidate(config, viewCandidate);
     applySimulationCandidate(config, simulationCandidate);
     normalizeTargets(config);
-    return activeTargetViewDistanceChunks != previousViewTarget
-        || activeTargetSimulationDistanceChunks != previousSimulationTarget;
+    return activeTargetViewDistanceBlocks != previousViewTarget
+        || activeTargetSimulationDistanceBlocks != previousSimulationTarget;
   }
 
   private AdjustmentCandidate candidateForView(SimViewConfig config, long currentColdChunks) {
@@ -262,16 +263,16 @@ public final class SimViewAutoTuner {
         viewConsecutiveIncreaseChecks++;
         viewConsecutiveDecreaseChecks = 0;
         if (viewConsecutiveIncreaseChecks >= Math.max(1, config.adjustmentPassedChecksForIncrease())
-            && activeTargetViewDistanceChunks < clampViewMaximum(config, activeTargetSimulationDistanceChunks)) {
-          activeTargetViewDistanceChunks++;
+            && activeTargetViewDistanceBlocks < clampViewMaximum(config, activeTargetSimulationDistanceBlocks)) {
+          activeTargetViewDistanceBlocks += SimViewDistances.SECTION_SIZE_BLOCKS;
         }
       }
       case DECREASE -> {
         viewConsecutiveDecreaseChecks++;
         viewConsecutiveIncreaseChecks = 0;
         if (viewConsecutiveDecreaseChecks >= Math.max(1, config.adjustmentPassedChecksForDecrease())
-            && activeTargetViewDistanceChunks > clampViewMinimum(config, activeTargetSimulationDistanceChunks)) {
-          activeTargetViewDistanceChunks--;
+            && activeTargetViewDistanceBlocks > clampViewMinimum(config, activeTargetSimulationDistanceBlocks)) {
+          activeTargetViewDistanceBlocks -= SimViewDistances.SECTION_SIZE_BLOCKS;
         }
       }
       case STAY -> {
@@ -280,8 +281,8 @@ public final class SimViewAutoTuner {
       }
     }
 
-    activeTargetViewDistanceChunks =
-        clampViewTarget(config, activeTargetViewDistanceChunks, activeTargetSimulationDistanceChunks);
+    activeTargetViewDistanceBlocks =
+        clampViewTarget(config, activeTargetViewDistanceBlocks, activeTargetSimulationDistanceBlocks);
   }
 
   private void applySimulationCandidate(SimViewConfig config, AdjustmentCandidate candidate) {
@@ -291,9 +292,9 @@ public final class SimViewAutoTuner {
         simulationConsecutiveDecreaseChecks = 0;
         if (simulationConsecutiveIncreaseChecks
                 >= Math.max(1, config.simulationAdjustmentPassedChecksForIncrease())
-            && activeTargetSimulationDistanceChunks
-                < clampSimulationMaximum(config, activeTargetViewDistanceChunks)) {
-          activeTargetSimulationDistanceChunks++;
+            && activeTargetSimulationDistanceBlocks
+                < clampSimulationMaximum(config, activeTargetViewDistanceBlocks)) {
+          activeTargetSimulationDistanceBlocks += SimViewDistances.SECTION_SIZE_BLOCKS;
         }
       }
       case DECREASE -> {
@@ -301,8 +302,8 @@ public final class SimViewAutoTuner {
         simulationConsecutiveIncreaseChecks = 0;
         if (simulationConsecutiveDecreaseChecks
                 >= Math.max(1, config.simulationAdjustmentPassedChecksForDecrease())
-            && activeTargetSimulationDistanceChunks > clampSimulationMinimum(config)) {
-          activeTargetSimulationDistanceChunks--;
+            && activeTargetSimulationDistanceBlocks > clampSimulationMinimum(config)) {
+          activeTargetSimulationDistanceBlocks -= SimViewDistances.SECTION_SIZE_BLOCKS;
         }
       }
       case STAY -> {
@@ -311,8 +312,8 @@ public final class SimViewAutoTuner {
       }
     }
 
-    activeTargetSimulationDistanceChunks =
-        clampSimulationTarget(config, activeTargetSimulationDistanceChunks, activeTargetViewDistanceChunks);
+    activeTargetSimulationDistanceBlocks =
+        clampSimulationTarget(config, activeTargetSimulationDistanceBlocks, activeTargetViewDistanceBlocks);
   }
 
   private AdjustmentCandidate proactiveViewCandidate(SimViewConfig config, long currentColdChunks) {
@@ -323,7 +324,7 @@ public final class SimViewAutoTuner {
 
     if (currentColdChunks < coldChunkTarget) {
       long increasedColdChunks =
-          estimateGlobalColdSections(activeTargetViewDistanceChunks + 1, activeTargetSimulationDistanceChunks);
+          estimateGlobalColdSections(activeTargetViewDistanceBlocks + SimViewDistances.SECTION_SIZE_BLOCKS, activeTargetSimulationDistanceBlocks);
       if (increasedColdChunks <= coldChunkTarget) {
         return AdjustmentCandidate.INCREASE;
       }
@@ -344,7 +345,7 @@ public final class SimViewAutoTuner {
       long additionalColdChunks =
           Math.max(
               0L,
-              estimateGlobalColdSections(activeTargetViewDistanceChunks + 1, activeTargetSimulationDistanceChunks)
+              estimateGlobalColdSections(activeTargetViewDistanceBlocks + SimViewDistances.SECTION_SIZE_BLOCKS, activeTargetSimulationDistanceBlocks)
                   - currentColdChunks);
       double maxMsptPerChunk = maximumMsptPerColdSection();
       if (mspt + (maxMsptPerChunk * additionalColdChunks) >= config.reactiveDecreaseMsptThreshold()) {
@@ -367,7 +368,7 @@ public final class SimViewAutoTuner {
     }
 
     if (currentTickingChunks < tickingChunkTarget) {
-      long increasedTickingChunks = estimateGlobalTickingSections(activeTargetSimulationDistanceChunks + 1);
+      long increasedTickingChunks = estimateGlobalTickingSections(activeTargetSimulationDistanceBlocks + SimViewDistances.SECTION_SIZE_BLOCKS);
       if (increasedTickingChunks <= tickingChunkTarget) {
         return AdjustmentCandidate.INCREASE;
       }
@@ -386,7 +387,7 @@ public final class SimViewAutoTuner {
         return AdjustmentCandidate.INCREASE;
       }
       long additionalTickingChunks =
-          Math.max(0L, estimateGlobalTickingSections(activeTargetSimulationDistanceChunks + 1) - currentTickingChunks);
+          Math.max(0L, estimateGlobalTickingSections(activeTargetSimulationDistanceBlocks + SimViewDistances.SECTION_SIZE_BLOCKS) - currentTickingChunks);
       double maxMsptPerChunk = maximumMsptPerTickingSection();
       if (mspt + (maxMsptPerChunk * additionalTickingChunks) >= config.reactiveDecreaseMsptThreshold()) {
         return AdjustmentCandidate.STAY;
@@ -401,13 +402,13 @@ public final class SimViewAutoTuner {
     return AdjustmentCandidate.STAY;
   }
 
-  private long estimateGlobalColdSections(int targetViewDistanceChunks, int targetSimulationDistanceChunks) {
-    int safeView = Math.max(0, targetViewDistanceChunks);
-    int safeSimulation = Math.max(0, Math.min(targetSimulationDistanceChunks, safeView));
+  private long estimateGlobalColdSections(int targetViewDistanceBlocks, int targetSimulationDistanceBlocks) {
+    int safeView = Math.max(0, targetViewDistanceBlocks);
+    int safeSimulation = Math.max(0, Math.min(targetSimulationDistanceBlocks, safeView));
     long total = 0L;
 
     for (PlayerSample sample : playerSamples.values()) {
-      int requested = sample.requestedViewDistanceChunks;
+      int requested = sample.requestedViewDistanceBlocks;
       int visible = Math.min(requested, safeView);
       int simulated = Math.min(visible, safeSimulation);
       total += coldSectionsForRadii(simulated, visible);
@@ -416,14 +417,14 @@ public final class SimViewAutoTuner {
     return Math.max(0L, total);
   }
 
-  private long estimateGlobalTickingSections(int targetSimulationDistanceChunks) {
-    int safeSimulation = Math.max(0, targetSimulationDistanceChunks);
+  private long estimateGlobalTickingSections(int targetSimulationDistanceBlocks) {
+    int safeSimulation = Math.max(0, targetSimulationDistanceBlocks);
     long total = 0L;
 
     for (PlayerSample sample : playerSamples.values()) {
-      int requested = sample.requestedViewDistanceChunks;
+      int requested = sample.requestedViewDistanceBlocks;
       int simulated = Math.min(requested, safeSimulation);
-      total += sphereRadiusArea(simulated);
+      total += sphereRadiusArea(SimViewDistances.blocksToSections(simulated));
     }
 
     return Math.max(0L, total);
@@ -432,8 +433,8 @@ public final class SimViewAutoTuner {
   private static long coldSectionsForRadii(int simulatedRadius, int visibleRadius) {
     int safeSimulated = Math.max(0, Math.min(simulatedRadius, visibleRadius));
     int safeVisible = Math.max(0, visibleRadius);
-    long visibleArea = sphereRadiusArea(safeVisible);
-    long simulatedArea = sphereRadiusArea(safeSimulated);
+    long visibleArea = sphereRadiusArea(SimViewDistances.blocksToSections(safeVisible));
+    long simulatedArea = sphereRadiusArea(SimViewDistances.blocksToSections(safeSimulated));
     return Math.max(0L, visibleArea - simulatedArea);
   }
 
@@ -508,14 +509,14 @@ public final class SimViewAutoTuner {
   }
 
   private void normalizeTargets(SimViewConfig config) {
-    activeTargetSimulationDistanceChunks =
-        clampSimulationTarget(config, activeTargetSimulationDistanceChunks, Integer.MAX_VALUE);
-    activeTargetViewDistanceChunks =
-        clampViewTarget(config, activeTargetViewDistanceChunks, activeTargetSimulationDistanceChunks);
-    activeTargetSimulationDistanceChunks =
-        clampSimulationTarget(config, activeTargetSimulationDistanceChunks, activeTargetViewDistanceChunks);
-    activeTargetViewDistanceChunks =
-        clampViewTarget(config, activeTargetViewDistanceChunks, activeTargetSimulationDistanceChunks);
+    activeTargetSimulationDistanceBlocks =
+        clampSimulationTarget(config, activeTargetSimulationDistanceBlocks, Integer.MAX_VALUE);
+    activeTargetViewDistanceBlocks =
+        clampViewTarget(config, activeTargetViewDistanceBlocks, activeTargetSimulationDistanceBlocks);
+    activeTargetSimulationDistanceBlocks =
+        clampSimulationTarget(config, activeTargetSimulationDistanceBlocks, activeTargetViewDistanceBlocks);
+    activeTargetViewDistanceBlocks =
+        clampViewTarget(config, activeTargetViewDistanceBlocks, activeTargetSimulationDistanceBlocks);
   }
 
   private int clampViewTarget(SimViewConfig config, int target, int simulationTarget) {
@@ -525,11 +526,11 @@ public final class SimViewAutoTuner {
   }
 
   private int clampViewMinimum(SimViewConfig config, int simulationTarget) {
-    return Math.max(simulationTarget, config.minimumTargetViewDistanceChunks());
+    return Math.max(simulationTarget, config.minimumTargetViewDistanceBlocks());
   }
 
   private int clampViewMaximum(SimViewConfig config, int simulationTarget) {
-    return Math.max(clampViewMinimum(config, simulationTarget), config.maximumTargetViewDistanceChunks());
+    return Math.max(clampViewMinimum(config, simulationTarget), config.maximumTargetViewDistanceBlocks());
   }
 
   private int clampSimulationTarget(SimViewConfig config, int target, int viewLimit) {
@@ -537,18 +538,18 @@ public final class SimViewAutoTuner {
     int maximum = clampSimulationMaximum(config, viewLimit);
     int resolvedTarget =
         target < 0
-            ? config.clampedTargetSimulationDistanceChunks(configuredHytaleViewDistanceChunks, target)
+            ? config.clampedTargetSimulationDistanceBlocks(configuredHytaleViewDistanceBlocks, target)
             : target;
     return Math.max(minimum, Math.min(resolvedTarget, maximum));
   }
 
   private int clampSimulationMinimum(SimViewConfig config) {
-    return Math.max(0, config.minimumTargetSimulationDistanceChunks());
+    return Math.max(0, config.minimumTargetSimulationDistanceBlocks());
   }
 
   private int clampSimulationMaximum(SimViewConfig config, int viewLimit) {
     int minimum = clampSimulationMinimum(config);
-    int maximum = Math.max(minimum, config.maximumTargetSimulationDistanceChunks());
+    int maximum = Math.max(minimum, config.maximumTargetSimulationDistanceBlocks());
     if (viewLimit >= 0 && viewLimit != Integer.MAX_VALUE) {
       maximum = Math.min(maximum, Math.max(minimum, viewLimit));
     }
@@ -557,12 +558,12 @@ public final class SimViewAutoTuner {
 
   private static final class PlayerSample {
     private UUID worldUuid;
-    private volatile int requestedViewDistanceChunks;
+    private volatile int requestedViewDistanceBlocks;
     private volatile long lastSeenServerTick;
 
-    private PlayerSample(int requestedViewDistanceChunks, long lastSeenServerTick, UUID worldUuid) {
+    private PlayerSample(int requestedViewDistanceBlocks, long lastSeenServerTick, UUID worldUuid) {
       this.worldUuid = worldUuid;
-      this.requestedViewDistanceChunks = requestedViewDistanceChunks;
+      this.requestedViewDistanceBlocks = requestedViewDistanceBlocks;
       this.lastSeenServerTick = lastSeenServerTick;
     }
   }
@@ -598,8 +599,8 @@ public final class SimViewAutoTuner {
   private record MsptSectionRecord(long timestampMillis, double mspt, long coldChunks, long tickingChunks) {}
 
   public record AutoTuneSnapshot(
-      int activeTargetViewDistanceChunks,
-      int activeTargetSimulationDistanceChunks,
+      int activeTargetViewDistanceBlocks,
+      int activeTargetSimulationDistanceBlocks,
       double mspt,
       long estimatedColdSections,
       long proactiveColdSectionTarget,

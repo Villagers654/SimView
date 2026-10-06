@@ -52,12 +52,12 @@ public final class SimView extends JavaPlugin {
     this.getEventRegistry().registerGlobal(PlayerDisconnectEvent.class, this::handlePlayerDisconnect);
 
     LOGGER.atInfo().log(
-        "SimView setup complete: configuredSimulationDistance=%s chunks, configuredTargetSimulationDistance=%s chunks, activeTargetSimulationDistance=%s chunks, configuredViewDistance=%s chunks, activeViewDistance=%s chunks, viewMode=%s, simulationMode=%s, viewDistanceCap=%s chunks, configRoot=%s",
-        distanceService.hytaleSimulationDistanceChunks(),
-        config.targetSimulationDistanceChunks(),
-        distanceService.activeTargetSimulationDistanceChunks(),
-        config.targetViewDistanceChunks(),
-        distanceService.activeTargetViewDistanceChunks(),
+        "SimView setup complete: configuredSimulationDistance=%s blocks, configuredTargetSimulationDistance=%s blocks, activeTargetSimulationDistance=%s blocks, configuredViewDistance=%s blocks, activeViewDistance=%s blocks, viewMode=%s, simulationMode=%s, viewDistanceCap=%s blocks, configRoot=%s",
+        distanceService.hytaleSimulationDistanceBlocks(),
+        config.targetSimulationDistanceBlocks(),
+        distanceService.activeTargetSimulationDistanceBlocks(),
+        config.targetViewDistanceBlocks(),
+        distanceService.activeTargetViewDistanceBlocks(),
         config.adjustmentMode().name().toLowerCase(),
         config.simulationAdjustmentMode().name().toLowerCase(),
         distanceService.activeViewDistanceCap(),

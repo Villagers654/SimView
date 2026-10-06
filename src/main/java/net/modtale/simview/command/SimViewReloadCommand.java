@@ -37,25 +37,25 @@ public final class SimViewReloadCommand extends AbstractPlayerCommand {
     }
     commandContext.sendMessage(
         Message.raw(
-                "SimView reloaded: configured-simulation-distance-chunks="
-                    + distanceService.hytaleSimulationDistanceChunks()
-                    + ", target-view-distance-chunks="
-                    + config.targetViewDistanceChunks()
-                    + ", target-simulation-distance-chunks="
-                    + config.targetSimulationDistanceChunks()
-                    + ", active-target-view-distance-chunks="
-                    + distanceService.activeTargetViewDistanceChunks()
-                    + ", active-target-simulation-distance-chunks="
-                    + distanceService.activeTargetSimulationDistanceChunks()
+                "SimView reloaded: configured-simulation-distance-blocks="
+                    + distanceService.hytaleSimulationDistanceBlocks()
+                    + ", target-view-distance-blocks="
+                    + config.targetViewDistanceBlocks()
+                    + ", target-simulation-distance-blocks="
+                    + config.targetSimulationDistanceBlocks()
+                    + ", active-target-view-distance-blocks="
+                    + distanceService.activeTargetViewDistanceBlocks()
+                    + ", active-target-simulation-distance-blocks="
+                    + distanceService.activeTargetSimulationDistanceBlocks()
                     + ", adjustment-mode="
                     + config.adjustmentMode().name().toLowerCase()
                     + ", simulation-adjustment-mode="
                     + config.simulationAdjustmentMode().name().toLowerCase()
                     + ", cold view cap="
                     + distanceService.activeViewDistanceCap()
-                    + " chunks, active-simulation-distance-chunks="
+                    + " blocks, active-simulation-distance-blocks="
                     + distanceService.activeSimulationDistanceCap()
-                    + " chunks")
+                    + " blocks")
             .color("green"));
   }
 }

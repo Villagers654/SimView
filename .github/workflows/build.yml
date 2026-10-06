@@ -8,6 +8,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        hytale: ['0.6.8', '0.7.0-pre.5.1']
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-java@v6.0.1
@@ -15,4 +18,4 @@ jobs:
           distribution: temurin
           java-version: '25'
       - uses: gradle/actions/setup-gradle@v6.4.0
-      - run: bash gradlew --no-daemon --max-workers=2 clean build
+      - run: bash gradlew --no-daemon --max-workers=2 -PhytaleVersion=${{ matrix.hytale }} clean build

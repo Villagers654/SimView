@@ -192,7 +192,7 @@ $C.@PageOverlay {
                 Anchor: (Top: 4);
 
                 Label {
-                  Text: "Simulation (chunks):";
+                  Text: "Simulation (blocks):";
                   Style: (FontSize: 12, TextColor: #ffffff(0.75));
                 }
                 Label #RuntimeSimulationDistance {
@@ -207,7 +207,7 @@ $C.@PageOverlay {
                 Anchor: (Top: 3);
 
                 Label {
-                  Text: "View (chunks):";
+                  Text: "View (blocks):";
                   Style: (FontSize: 12, TextColor: #ffffff(0.75));
                 }
                 Label #RuntimeViewDistance {

@@ -10,6 +10,44 @@ import org.junit.jupiter.api.io.TempDir;
 class SimViewConfigTest {
   @TempDir Path directory;
 
+  @Test void legacyDistancesMigrateOnceWithoutChangingWorldDistancesOrExplicitBudgets() throws Exception {
+    String oldJson = """
+        {"core":{"target":{"view-distance-chunks":64,"simulation-distance-chunks":-1},
+          "limits":{"minimum":{"view-distance-chunks":2,"simulation-distance-chunks":1},
+          "maximum":{"view-distance-chunks":64,"simulation-distance-chunks":8}}},
+         "section-streaming":{"budget":{"section-sends-per-second":96,"section-sends-per-tick":8}}}
+        """;
+    Path file = directory.resolve("config/simview.json");
+    Files.createDirectories(file.getParent());
+    Files.writeString(file, oldJson);
+    var loaded = SimViewConfig.load(directory, SimViewConfig.defaults(8));
+    assertEquals(2048, loaded.targetViewDistanceBlocks());
+    assertEquals(-1, loaded.targetSimulationDistanceBlocks());
+    assertEquals(64, loaded.minimumTargetViewDistanceBlocks());
+    assertEquals(32, loaded.minimumTargetSimulationDistanceBlocks());
+    assertEquals(2048, loaded.maximumTargetViewDistanceBlocks());
+    assertEquals(256, loaded.maximumTargetSimulationDistanceBlocks());
+    assertEquals(96, loaded.maxSectionSendsPerSecond());
+    assertEquals(8, loaded.maxSectionSendsPerTick());
+    assertEquals(oldJson, Files.readString(file.resolveSibling("simview.v1.json")));
+    var saved = com.google.gson.JsonParser.parseString(Files.readString(file)).getAsJsonObject();
+    assertEquals(2, saved.get("schema-version").getAsInt());
+    assertFalse(Files.readString(file).contains("distance-chunks"));
+    assertEquals(loaded, SimViewConfig.load(directory, SimViewConfig.defaults(8)));
+    assertEquals(oldJson, Files.readString(file.resolveSibling("simview.v1.json")));
+  }
+
+  @Test void mixedUnitsAndUnknownSchemasAreRejectedRatherThanReinterpreted() {
+    assertThrows(IllegalArgumentException.class, () -> TestConfigs.config("""
+        {"schema-version":2,"core":{"target":{"view-distance-chunks":64}}}
+        """));
+    assertThrows(IllegalArgumentException.class, () -> TestConfigs.config("""
+        {"core":{"target":{"view-distance-blocks":1024}}}
+        """));
+    assertThrows(IllegalArgumentException.class, () -> TestConfigs.config("{\"schema-version\":3}"));
+    assertThrows(IllegalArgumentException.class, () -> TestConfigs.config("{\"schema-version\":2.5}"));
+  }
+
   @Test void reloadFailurePreservesLastGoodConfiguration() throws Exception {
     SimViewConfigStore store = new SimViewConfigStore(directory, SimViewConfig.defaults(8));
     SimViewConfig previous = store.current();
@@ -30,7 +68,7 @@ class SimViewConfigTest {
   @Test void reloadUsesOriginalDefaults() throws Exception {
     SimViewConfigStore store = new SimViewConfigStore(directory, SimViewConfig.defaults(8));
     Files.writeString(directory.resolve("config/simview.json"), "{}");
-    assertEquals(8, store.reload().targetSimulationDistanceChunks());
+    assertEquals(256, store.reload().targetSimulationDistanceBlocks());
   }
 
   @Test void unsafeResourceValuesAreBounded() {
@@ -40,8 +78,8 @@ class SimViewConfigTest {
          "auto-adjustment":{"reactive":{"mspt-collection-period-ticks":2147483647}},
          "section-streaming":{"budget":{"section-sends-per-tick":2147483647}}}
         """);
-    assertEquals(64, config.targetViewDistanceChunks());
-    assertEquals(64, config.maximumTargetViewDistanceChunks());
+    assertEquals(2048, config.targetViewDistanceBlocks());
+    assertEquals(2048, config.maximumTargetViewDistanceBlocks());
     assertEquals(128, config.maxSectionSendsPerTick());
     assertEquals(6_000, config.reactiveMsptCollectionPeriodTicks());
   }

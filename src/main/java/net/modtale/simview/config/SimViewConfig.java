@@ -16,14 +16,14 @@ public record SimViewConfig(
     boolean enabled,
     boolean guiEnabled,
     boolean disableJoinHintMessage,
-    int targetViewDistanceChunks,
-    int targetSimulationDistanceChunks,
+    int targetViewDistanceBlocks,
+    int targetSimulationDistanceBlocks,
     SimViewAdjustmentMode adjustmentMode,
     SimViewAdjustmentMode simulationAdjustmentMode,
-    int minimumTargetViewDistanceChunks,
-    int maximumTargetViewDistanceChunks,
-    int minimumTargetSimulationDistanceChunks,
-    int maximumTargetSimulationDistanceChunks,
+    int minimumTargetViewDistanceBlocks,
+    int maximumTargetViewDistanceBlocks,
+    int minimumTargetSimulationDistanceBlocks,
+    int maximumTargetSimulationDistanceBlocks,
     int adjustmentTicksPerCheck,
     int adjustmentStartupDelayTicks,
     int adjustmentPassedChecksForIncrease,
@@ -45,27 +45,27 @@ public record SimViewConfig(
     int speedingSectionSendsPerTick,
     int speedingCooldownTicks) {
 
-  public static final int CHUNK_SIZE_BLOCKS = 32;
+  public static final int CHUNK_SIZE_BLOCKS = com.hypixel.hytale.math.util.ChunkUtil.SIZE;
   private static final String CONFIG_FILE = "simview.json";
   private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
   public SimViewConfig {
-    targetViewDistanceChunks = boundedRadius(targetViewDistanceChunks);
-    targetSimulationDistanceChunks = targetSimulationDistanceChunks < 0 ? -1 : boundedRadius(targetSimulationDistanceChunks);
-    minimumTargetViewDistanceChunks = boundedRadius(minimumTargetViewDistanceChunks);
-    maximumTargetViewDistanceChunks = boundedRadius(maximumTargetViewDistanceChunks);
-    minimumTargetSimulationDistanceChunks = boundedRadius(minimumTargetSimulationDistanceChunks);
-    maximumTargetSimulationDistanceChunks = boundedRadius(maximumTargetSimulationDistanceChunks);
+    targetViewDistanceBlocks = boundedRadius(targetViewDistanceBlocks);
+    targetSimulationDistanceBlocks = targetSimulationDistanceBlocks < 0 ? -1 : boundedRadius(targetSimulationDistanceBlocks);
+    minimumTargetViewDistanceBlocks = boundedRadius(minimumTargetViewDistanceBlocks);
+    maximumTargetViewDistanceBlocks = boundedRadius(maximumTargetViewDistanceBlocks);
+    minimumTargetSimulationDistanceBlocks = boundedRadius(minimumTargetSimulationDistanceBlocks);
+    maximumTargetSimulationDistanceBlocks = boundedRadius(maximumTargetSimulationDistanceBlocks);
     reactiveMsptCollectionPeriodTicks = Math.clamp(reactiveMsptCollectionPeriodTicks, 1, 6_000);
-    maxSectionSendsPerSecond = Math.clamp(maxSectionSendsPerSecond, 1, 10_000);
-    maxSectionSendsPerTick = Math.clamp(maxSectionSendsPerTick, 1, 128);
-    speedingSectionSendsPerSecond = Math.clamp(speedingSectionSendsPerSecond, 1, 10_000);
-    speedingSectionSendsPerTick = Math.clamp(speedingSectionSendsPerTick, 1, 128);
+    maxSectionSendsPerSecond = Math.clamp(maxSectionSendsPerSecond, 0, 10_000);
+    maxSectionSendsPerTick = Math.clamp(maxSectionSendsPerTick, 0, 128);
+    speedingSectionSendsPerSecond = Math.clamp(speedingSectionSendsPerSecond, 0, 10_000);
+    speedingSectionSendsPerTick = Math.clamp(speedingSectionSendsPerTick, 0, 128);
     reactiveMsptPredictionHistoryMinutes = Math.clamp(reactiveMsptPredictionHistoryMinutes, 1, 1440);
   }
 
   private static int boundedRadius(int radius) {
-    return Math.clamp(radius, 0, 64);
+    return SimViewDistances.normalizeBlocks(radius);
   }
 
   public static SimViewConfig defaults() {
@@ -78,14 +78,14 @@ public record SimViewConfig(
         true,
         true,
         false,
-        32,
-        runtimeHytaleViewDistance,
+        1024,
+        SimViewDistances.sectionsToBlocks(runtimeHytaleViewDistance),
         SimViewAdjustmentMode.OFF,
         SimViewAdjustmentMode.OFF,
         0,
-        32,
+        1024,
         0,
-        runtimeHytaleViewDistance,
+        SimViewDistances.sectionsToBlocks(runtimeHytaleViewDistance),
         600,
         2400,
         10,
@@ -99,12 +99,12 @@ public record SimViewConfig(
         1200,
         true,
         30,
-        96,
-        8,
+        0,
+        0,
         true,
         1.2D,
-        24,
-        2,
+        0,
+        0,
         40);
   }
 
@@ -123,7 +123,15 @@ public record SimViewConfig(
       }
 
       String json = Files.readString(configFile, StandardCharsets.UTF_8);
-      return fromJson(json, defaults);
+      SimViewConfig loaded = fromJson(json, defaults);
+      if (schemaVersion(JsonParser.parseString(json).getAsJsonObject()) == 1) {
+        Path backup = configDirectory.resolve("simview.v1.json");
+        if (Files.notExists(backup)) {
+          Files.copy(configFile, backup);
+        }
+        save(dataDirectory, loaded);
+      }
+      return loaded;
     } catch (Exception exception) {
       throw new IllegalStateException("Unable to load SimView config from " + configFile, exception);
     }
@@ -150,41 +158,41 @@ public record SimViewConfig(
     }
   }
 
-  public int clampedTargetSimulationDistanceChunks(
-      int configuredHytaleViewDistanceChunks, int targetSimulationDistanceChunks) {
-    int configuredHytale = Math.max(0, configuredHytaleViewDistanceChunks);
+  public int clampedTargetSimulationDistanceBlocks(
+      int configuredHytaleViewDistanceBlocks, int targetSimulationDistanceBlocks) {
+    int configuredHytale = Math.max(0, configuredHytaleViewDistanceBlocks);
     int requestedTarget =
-        targetSimulationDistanceChunks < 0 ? configuredHytale : Math.max(0, targetSimulationDistanceChunks);
-    int minimum = Math.max(0, minimumTargetSimulationDistanceChunks);
-    int maximum = Math.max(minimum, maximumTargetSimulationDistanceChunks);
+        targetSimulationDistanceBlocks < 0 ? configuredHytale : Math.max(0, targetSimulationDistanceBlocks);
+    int minimum = Math.max(0, minimumTargetSimulationDistanceBlocks);
+    int maximum = Math.max(minimum, maximumTargetSimulationDistanceBlocks);
     return Math.max(minimum, Math.min(requestedTarget, maximum));
   }
 
-  public int clampedTargetViewDistanceChunks(int simulationDistanceChunks, int targetViewDistanceChunks) {
-    int minimum = Math.max(0, Math.max(simulationDistanceChunks, minimumTargetViewDistanceChunks));
-    int maximum = Math.max(minimum, maximumTargetViewDistanceChunks);
-    return Math.max(minimum, Math.min(targetViewDistanceChunks, maximum));
+  public int clampedTargetViewDistanceBlocks(int simulationDistanceBlocks, int targetViewDistanceBlocks) {
+    int minimum = Math.max(0, Math.max(simulationDistanceBlocks, minimumTargetViewDistanceBlocks));
+    int maximum = Math.max(minimum, maximumTargetViewDistanceBlocks);
+    return Math.max(minimum, Math.min(targetViewDistanceBlocks, maximum));
   }
 
-  public int simulationDistanceCap(int configuredHytaleViewDistanceChunks) {
-    return simulationDistanceCap(configuredHytaleViewDistanceChunks, targetSimulationDistanceChunks);
+  public int simulationDistanceCap(int configuredHytaleViewDistanceBlocks) {
+    return simulationDistanceCap(configuredHytaleViewDistanceBlocks, targetSimulationDistanceBlocks);
   }
 
-  public int simulationDistanceCap(int configuredHytaleViewDistanceChunks, int activeTargetSimulationDistanceChunks) {
-    int configuredHytale = Math.max(0, configuredHytaleViewDistanceChunks);
-    return clampedTargetSimulationDistanceChunks(configuredHytale, activeTargetSimulationDistanceChunks);
+  public int simulationDistanceCap(int configuredHytaleViewDistanceBlocks, int activeTargetSimulationDistanceBlocks) {
+    int configuredHytale = Math.max(0, configuredHytaleViewDistanceBlocks);
+    return clampedTargetSimulationDistanceBlocks(configuredHytale, activeTargetSimulationDistanceBlocks);
   }
 
-  public int extendedViewDistanceCap(int simulationDistanceChunks) {
-    return extendedViewDistanceCap(simulationDistanceChunks, targetViewDistanceChunks);
+  public int extendedViewDistanceCap(int simulationDistanceBlocks) {
+    return extendedViewDistanceCap(simulationDistanceBlocks, targetViewDistanceBlocks);
   }
 
-  public int extendedViewDistanceCap(int simulationDistanceChunks, int activeTargetViewDistanceChunks) {
-    int simulationDistance = Math.max(0, simulationDistanceChunks);
+  public int extendedViewDistanceCap(int simulationDistanceBlocks, int activeTargetViewDistanceBlocks) {
+    int simulationDistance = Math.max(0, simulationDistanceBlocks);
     if (!enabled) {
       return simulationDistance;
     }
-    int clampedTarget = clampedTargetViewDistanceChunks(simulationDistance, activeTargetViewDistanceChunks);
+    int clampedTarget = clampedTargetViewDistanceBlocks(simulationDistance, activeTargetViewDistanceBlocks);
     return Math.max(simulationDistance, clampedTarget);
   }
 
@@ -194,26 +202,26 @@ public record SimViewConfig(
     return Math.min(requested, serverLimited);
   }
 
-  public int effectiveExtendedViewDistance(int simulationDistanceChunks, int requestedClientViewRadius) {
+  public int effectiveExtendedViewDistance(int simulationDistanceBlocks, int requestedClientViewRadius) {
     int requested = Math.max(0, requestedClientViewRadius);
-    return Math.min(requested, extendedViewDistanceCap(simulationDistanceChunks));
+    return Math.min(requested, extendedViewDistanceCap(simulationDistanceBlocks));
   }
 
   public int effectiveExtendedViewDistance(
-      int simulationDistanceChunks, int requestedClientViewRadius, int activeTargetViewDistanceChunks) {
+      int simulationDistanceBlocks, int requestedClientViewRadius, int activeTargetViewDistanceBlocks) {
     int requested = Math.max(0, requestedClientViewRadius);
-    return Math.min(requested, extendedViewDistanceCap(simulationDistanceChunks, activeTargetViewDistanceChunks));
+    return Math.min(requested, extendedViewDistanceCap(simulationDistanceBlocks, activeTargetViewDistanceBlocks));
   }
 
-  public int effectiveSimulationDistance(int simulationDistanceChunks, int requestedClientViewRadius) {
+  public int effectiveSimulationDistance(int simulationDistanceBlocks, int requestedClientViewRadius) {
     int requested = Math.max(0, requestedClientViewRadius);
-    return Math.min(Math.max(0, simulationDistanceChunks), requested);
+    return Math.min(Math.max(0, simulationDistanceBlocks), requested);
   }
 
   public int effectiveSimulationDistance(
-      int simulationDistanceChunks, int requestedClientViewRadius, int serverLimitedViewRadius) {
+      int simulationDistanceBlocks, int requestedClientViewRadius, int serverLimitedViewRadius) {
     int viewDistance = effectiveViewDistance(requestedClientViewRadius, serverLimitedViewRadius);
-    return Math.min(Math.max(0, simulationDistanceChunks), viewDistance);
+    return Math.min(Math.max(0, simulationDistanceBlocks), viewDistance);
   }
 
   private static void writeDefaults(Path configFile, SimViewConfig defaults) throws IOException {
@@ -222,6 +230,7 @@ public record SimViewConfig(
 
   private static String renderJson(SimViewConfig config) {
     JsonObject root = new JsonObject();
+    root.addProperty("schema-version", 2);
 
     JsonObject core = new JsonObject();
     core.addProperty("enabled", config.enabled());
@@ -229,19 +238,19 @@ public record SimViewConfig(
     core.addProperty("disable-join-hint-message", config.disableJoinHintMessage());
 
     JsonObject coreTarget = new JsonObject();
-    coreTarget.addProperty("view-distance-chunks", config.targetViewDistanceChunks());
-    coreTarget.addProperty("simulation-distance-chunks", config.targetSimulationDistanceChunks());
+    coreTarget.addProperty("view-distance-blocks", config.targetViewDistanceBlocks());
+    coreTarget.addProperty("simulation-distance-blocks", config.targetSimulationDistanceBlocks());
     core.add("target", coreTarget);
 
     JsonObject coreLimits = new JsonObject();
     JsonObject coreLimitsMinimum = new JsonObject();
-    coreLimitsMinimum.addProperty("view-distance-chunks", config.minimumTargetViewDistanceChunks());
-    coreLimitsMinimum.addProperty("simulation-distance-chunks", config.minimumTargetSimulationDistanceChunks());
+    coreLimitsMinimum.addProperty("view-distance-blocks", config.minimumTargetViewDistanceBlocks());
+    coreLimitsMinimum.addProperty("simulation-distance-blocks", config.minimumTargetSimulationDistanceBlocks());
     coreLimits.add("minimum", coreLimitsMinimum);
 
     JsonObject coreLimitsMaximum = new JsonObject();
-    coreLimitsMaximum.addProperty("view-distance-chunks", config.maximumTargetViewDistanceChunks());
-    coreLimitsMaximum.addProperty("simulation-distance-chunks", config.maximumTargetSimulationDistanceChunks());
+    coreLimitsMaximum.addProperty("view-distance-blocks", config.maximumTargetViewDistanceBlocks());
+    coreLimitsMaximum.addProperty("simulation-distance-blocks", config.maximumTargetSimulationDistanceBlocks());
     coreLimits.add("maximum", coreLimitsMaximum);
     core.add("limits", coreLimits);
     root.add("core", core);
@@ -307,6 +316,31 @@ public record SimViewConfig(
 
   static SimViewConfig fromJson(String json, SimViewConfig defaults) {
     JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+    int version = schemaVersion(root);
+    if (version != 1 && version != 2) {
+      throw new IllegalArgumentException("Unsupported SimView config schema: " + version);
+    }
+    JsonObject migrationCore = objectAt(root, "core");
+    JsonObject migrationLimits = objectAt(migrationCore, "limits");
+    for (JsonObject distances : new JsonObject[] {objectAt(migrationCore, "target"),
+        objectAt(migrationLimits, "minimum"), objectAt(migrationLimits, "maximum")}) {
+      for (String kind : new String[] {"view", "simulation"}) {
+        String legacy = kind + "-distance-chunks";
+        String blocks = kind + "-distance-blocks";
+        if ((version == 1 && distances.has(blocks)) || (version == 2 && distances.has(legacy))) {
+          throw new IllegalArgumentException("Distance units do not match config schema " + version);
+        }
+        if (version == 1 && distances.has(legacy)) {
+          java.math.BigDecimal raw = distances.get(legacy).getAsBigDecimal();
+          int chunks = raw.signum() < 0 ? -1
+              : raw.min(java.math.BigDecimal.valueOf(SimViewDistances.MAX_RADIUS_SECTIONS)).intValueExact();
+          int value = chunks < 0 && kind.equals("simulation") ? -1
+              : (int) Math.clamp(chunks, 0L, SimViewDistances.MAX_RADIUS_SECTIONS) * CHUNK_SIZE_BLOCKS;
+          distances.remove(legacy);
+          distances.addProperty(blocks, value);
+        }
+      }
+    }
 
     JsonObject core = objectAt(root, "core");
     JsonObject coreTarget = objectAt(core, "target");
@@ -332,8 +366,8 @@ public record SimViewConfig(
     boolean enabled = boolAt(core, "enabled", defaults.enabled());
     boolean guiEnabled = boolAt(core, "gui-enabled", defaults.guiEnabled());
     boolean disableJoinHintMessage = boolAt(core, "disable-join-hint-message", defaults.disableJoinHintMessage());
-    int targetViewDistanceChunks = nonNegativeInt(intAt(coreTarget, "view-distance-chunks", defaults.targetViewDistanceChunks()));
-    int targetSimulationDistanceChunks = intAt(coreTarget, "simulation-distance-chunks", defaults.targetSimulationDistanceChunks());
+    int targetViewDistanceBlocks = nonNegativeInt(intAt(coreTarget, "view-distance-blocks", defaults.targetViewDistanceBlocks()));
+    int targetSimulationDistanceBlocks = intAt(coreTarget, "simulation-distance-blocks", defaults.targetSimulationDistanceBlocks());
 
     SimViewAdjustmentMode viewAdjustmentMode =
         SimViewAdjustmentMode.fromProperty(
@@ -360,14 +394,14 @@ public record SimViewConfig(
         enabled,
         guiEnabled,
         disableJoinHintMessage,
-        targetViewDistanceChunks,
-        targetSimulationDistanceChunks,
+        targetViewDistanceBlocks,
+        targetSimulationDistanceBlocks,
         viewAdjustmentMode,
         simulationAdjustmentMode,
-        nonNegativeInt(intAt(coreLimitsMinimum, "view-distance-chunks", defaults.minimumTargetViewDistanceChunks())),
-        nonNegativeInt(intAt(coreLimitsMaximum, "view-distance-chunks", defaults.maximumTargetViewDistanceChunks())),
-        nonNegativeInt(intAt(coreLimitsMinimum, "simulation-distance-chunks", defaults.minimumTargetSimulationDistanceChunks())),
-        nonNegativeInt(intAt(coreLimitsMaximum, "simulation-distance-chunks", defaults.maximumTargetSimulationDistanceChunks())),
+        nonNegativeInt(intAt(coreLimitsMinimum, "view-distance-blocks", defaults.minimumTargetViewDistanceBlocks())),
+        nonNegativeInt(intAt(coreLimitsMaximum, "view-distance-blocks", defaults.maximumTargetViewDistanceBlocks())),
+        nonNegativeInt(intAt(coreLimitsMinimum, "simulation-distance-blocks", defaults.minimumTargetSimulationDistanceBlocks())),
+        nonNegativeInt(intAt(coreLimitsMaximum, "simulation-distance-blocks", defaults.maximumTargetSimulationDistanceBlocks())),
         adjustmentTicksPerCheck,
         adjustmentStartupDelayTicks,
         adjustmentPassedChecksForIncrease,
@@ -381,12 +415,12 @@ public record SimViewConfig(
         positiveInt(intAt(adjustmentReactive, "mspt-collection-period-ticks", defaults.reactiveMsptCollectionPeriodTicks())),
         boolAt(adjustmentReactive, "use-mspt-prediction", defaults.reactiveUseMsptPrediction()),
         positiveInt(intAt(adjustmentReactive, "mspt-prediction-history-minutes", defaults.reactiveMsptPredictionHistoryMinutes())),
-        positiveInt(intAt(streamingBudget, "section-sends-per-second", defaults.maxSectionSendsPerSecond())),
-        positiveInt(intAt(streamingBudget, "section-sends-per-tick", defaults.maxSectionSendsPerTick())),
+        nonNegativeInt(intAt(streamingBudget, "section-sends-per-second", defaults.maxSectionSendsPerSecond())),
+        nonNegativeInt(intAt(streamingBudget, "section-sends-per-tick", defaults.maxSectionSendsPerTick())),
         boolAt(streaming, "despawn-entities", defaults.despawnEntitiesInColdChunks()),
         nonNegativeDouble(doubleAt(speeding, "not-send-blocks-per-tick", defaults.speedingNotSendBlocksPerTick())),
-        positiveInt(intAt(speedingBudget, "section-sends-per-second", defaults.speedingSectionSendsPerSecond())),
-        positiveInt(intAt(speedingBudget, "section-sends-per-tick", defaults.speedingSectionSendsPerTick())),
+        nonNegativeInt(intAt(speedingBudget, "section-sends-per-second", defaults.speedingSectionSendsPerSecond())),
+        nonNegativeInt(intAt(speedingBudget, "section-sends-per-tick", defaults.speedingSectionSendsPerTick())),
         nonNegativeInt(intAt(speeding, "cooldown-ticks", defaults.speedingCooldownTicks())));
   }
 
@@ -395,6 +429,10 @@ public record SimViewConfig(
       return new JsonObject();
     }
     return parent.getAsJsonObject(key);
+  }
+
+  private static int schemaVersion(JsonObject root) {
+    return root.has("schema-version") ? Integer.parseInt(root.get("schema-version").getAsString()) : 1;
   }
 
   private static String stringAt(JsonObject parent, String key, String fallback) {
@@ -424,7 +462,10 @@ public record SimViewConfig(
       return fallback;
     }
     try {
-      return parent.get(key).getAsInt();
+      java.math.BigDecimal value = parent.get(key).getAsBigDecimal();
+      value.toBigIntegerExact();
+      return value.max(java.math.BigDecimal.valueOf(Integer.MIN_VALUE))
+          .min(java.math.BigDecimal.valueOf(Integer.MAX_VALUE)).intValue();
     } catch (Exception ignored) {
       return fallback;
     }

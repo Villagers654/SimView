@@ -5,12 +5,20 @@ plugins {
 group = 'club.simview'
 version = '0.1.0'
 
-def hytaleVersion = '0.7.0-pre.5.1'
+def supportedHytaleVersions = ['0.6.8', '0.7.0-pre.5.1']
+def hytaleVersion = providers.gradleProperty('hytaleVersion').getOrElse('0.6.8')
+if (!supportedHytaleVersions.contains(hytaleVersion)) {
+    throw new GradleException("Unsupported Hytale API version: ${hytaleVersion}")
+}
 
 repositories {
     mavenCentral()
     maven {
         name = 'hytale'
+        url = uri('https://maven.hytale.com/release')
+    }
+    maven {
+        name = 'hytalePrerelease'
         url = uri('https://maven.hytale.com/pre-release')
     }
 

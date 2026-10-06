@@ -43,11 +43,46 @@ class SimViewNativeStreamingTest {
   }
 
   @Test void verticalMovementUsesSpeedingBudgetAndRecovers() {
-    var config = TestConfigs.config("{\"speeding-adjustments\":{\"cooldown-ticks\":2}}");
+    var config = TestConfigs.config("""
+        {"section-streaming":{"budget":{"section-sends-per-second":96,"section-sends-per-tick":8}},
+         "speeding-adjustments":{"cooldown-ticks":2,
+           "budget":{"section-sends-per-second":24,"section-sends-per-tick":2}}}
+        """);
     var budgets = new SimViewStreamingBudget();
-    assertEquals(config.maxSectionSendsPerTick(), budgets.update(new Vector3d(), config).perTick());
-    assertEquals(config.speedingSectionSendsPerTick(), budgets.update(new Vector3d(0, 10, 0), config).perTick());
-    budgets.update(new Vector3d(0, 10, 0), config);
-    assertEquals(config.maxSectionSendsPerTick(), budgets.update(new Vector3d(0, 10, 0), config).perTick());
+    var nativeBudget = new SimViewStreamingBudget.Budget(360, 40);
+    assertEquals(config.maxSectionSendsPerTick(), budgets.update(new Vector3d(), config, nativeBudget).perTick());
+    assertEquals(config.speedingSectionSendsPerTick(), budgets.update(new Vector3d(0, 10, 0), config, nativeBudget).perTick());
+    budgets.update(new Vector3d(0, 10, 0), config, nativeBudget);
+    assertEquals(config.maxSectionSendsPerTick(), budgets.update(new Vector3d(0, 10, 0), config, nativeBudget).perTick());
+  }
+
+  @Test void defaultsPreserveNativeConnectionBudgetsEvenDuringFastMovement() {
+    var config = TestConfigs.config("{}");
+    for (int perSecond : new int[] {ChunkTracker.MAX_SECTIONS_PER_SECOND_LOCAL,
+        ChunkTracker.MAX_SECTIONS_PER_SECOND_LAN, ChunkTracker.MAX_SECTIONS_PER_SECOND}) {
+      var nativeBudget = new SimViewStreamingBudget.Budget(perSecond, ChunkTracker.MAX_SECTIONS_PER_TICK);
+      var budgets = new SimViewStreamingBudget();
+      for (int tick = 0; tick < 100; tick++) {
+        assertEquals(nativeBudget, budgets.update(new Vector3d(tick * 10, tick * 10, 0), config, nativeBudget));
+      }
+    }
+  }
+
+  @Test void captureInitializesNativeBudgetsWithoutReplacingExistingOverrides() {
+    int[] rates = {ChunkTracker.MAX_SECTIONS_PER_SECOND_LOCAL,
+        ChunkTracker.MAX_SECTIONS_PER_SECOND_LAN, ChunkTracker.MAX_SECTIONS_PER_SECOND};
+    for (int connection = 0; connection < rates.length; connection++) {
+      var handler = mock(com.hypixel.hytale.server.core.io.PacketHandler.class);
+      when(handler.isLocalConnection()).thenReturn(connection == 0);
+      when(handler.isLANConnection()).thenReturn(connection == 1);
+      var player = mock(com.hypixel.hytale.server.core.universe.PlayerRef.class);
+      when(player.getPacketHandler()).thenReturn(handler);
+      var tracker = new ChunkTracker(() -> SphereOffsets.build(8));
+      var original = SimViewTrackerSettings.captureForTuning(tracker, player);
+      assertEquals(rates[connection], original.perSecond());
+      assertEquals(ChunkTracker.MAX_SECTIONS_PER_TICK, original.perTick());
+      tracker.setMaxSectionsPerSecond(96);
+      assertEquals(96, SimViewTrackerSettings.captureForTuning(tracker, player).perSecond());
+    }
   }
 }

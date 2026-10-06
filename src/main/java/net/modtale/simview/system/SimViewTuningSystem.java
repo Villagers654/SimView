@@ -1,6 +1,7 @@
 package net.modtale.simview.system;
 
 import net.modtale.simview.config.SimViewConfig;
+import net.modtale.simview.config.SimViewDistances;
 import net.modtale.simview.service.SimViewDistanceService;
 import net.modtale.simview.service.SimViewStreamingBudget;
 import net.modtale.simview.service.SimViewTrackerSettings;
@@ -92,7 +93,7 @@ public final class SimViewTuningSystem extends EntityTickingSystem<EntityStore> 
       return;
     }
     if (config.enabled() && !tuningState.modified) {
-      tuningState.originalSettings = SimViewTrackerSettings.capture(chunkTracker);
+      tuningState.originalSettings = SimViewTrackerSettings.captureForTuning(chunkTracker, playerRef);
     }
     tuningState.world = world;
     tuningState.playerRef = playerRef;
@@ -100,15 +101,15 @@ public final class SimViewTuningSystem extends EntityTickingSystem<EntityStore> 
     tuningState.chunkTracker = chunkTracker;
     tuningState.entityViewer = entityViewer;
 
-    int rawRequestedViewDistance = Math.max(0, player.getClientViewRadius());
-    int activeSimulationTarget = distanceService.activeTargetSimulationDistanceChunks();
-    int activeViewTarget = distanceService.activeTargetViewDistanceChunks();
+    int rawRequestedViewDistance = SimViewDistances.sectionsToBlocks(player.getClientViewRadius());
+    int activeSimulationTarget = distanceService.activeTargetSimulationDistanceBlocks();
+    int activeViewTarget = distanceService.activeTargetViewDistanceBlocks();
     int activeSimulationDistance =
-        config.simulationDistanceCap(distanceService.hytaleSimulationDistanceChunks(), activeSimulationTarget);
+        config.simulationDistanceCap(distanceService.hytaleSimulationDistanceBlocks(), activeSimulationTarget);
     int requestedViewDistance = rawRequestedViewDistance;
     invalidateAdvertisedViewDistanceOnRuntimeChange(tuningState);
 
-    int serverLimitedViewDistance = Math.max(0, player.getViewRadius());
+    int serverLimitedViewDistance = SimViewDistances.sectionsToBlocks(player.getViewRadius());
     int effectiveViewDistance =
         config.effectiveExtendedViewDistance(activeSimulationDistance, requestedViewDistance, activeViewTarget);
     int effectiveSimulationDistance =
@@ -131,7 +132,8 @@ public final class SimViewTuningSystem extends EntityTickingSystem<EntityStore> 
     setIfChangedMinLoadedRadius(chunkTracker, effectiveViewDistance);
     setIfChangedMaxHotLoadedRadius(chunkTracker, effectiveSimulationDistance);
     SimViewStreamingBudget.Budget budget = tuningState.streamingBudget.update(
-        transformComponent.getPosition(), config);
+        transformComponent.getPosition(), config,
+        new SimViewStreamingBudget.Budget(tuningState.originalSettings.perSecond(), tuningState.originalSettings.perTick()));
     setIfChangedMaxSectionsPerSecond(chunkTracker, budget.perSecond());
     setIfChangedMaxSectionsPerTick(chunkTracker, budget.perTick());
 
@@ -162,7 +164,7 @@ public final class SimViewTuningSystem extends EntityTickingSystem<EntityStore> 
     PlayerTuningState state = tuningStates.remove(playerRef.getUuid());
     if (state != null && state.modified && state.originalSettings != null) {
       state.originalSettings.restore(state.chunkTracker);
-      setEntityViewRadiusBlocks(state.entityViewer, state.player.getViewRadius());
+      setEntityViewRadiusBlocks(state.entityViewer, SimViewDistances.sectionsToBlocks(state.player.getViewRadius()));
       state.modified = false;
     }
   }
@@ -195,19 +197,19 @@ public final class SimViewTuningSystem extends EntityTickingSystem<EntityStore> 
   }
 
   private static void setIfChangedMinLoadedRadius(ChunkTracker chunkTracker, int minLoadedRadius) {
-    if (chunkTracker.getMinLoadedRadius() != minLoadedRadius) {
-      chunkTracker.setMinLoadedRadius(minLoadedRadius);
+    if (chunkTracker.getMinLoadedRadius() != SimViewDistances.blocksToSections(minLoadedRadius)) {
+      chunkTracker.setMinLoadedRadius(SimViewDistances.blocksToSections(minLoadedRadius));
     }
   }
 
   private static void setIfChangedMaxHotLoadedRadius(ChunkTracker chunkTracker, int maxHotLoadedRadius) {
-    if (chunkTracker.getMaxHotLoadedRadius() != maxHotLoadedRadius) {
-      chunkTracker.setMaxHotLoadedRadius(maxHotLoadedRadius);
+    if (chunkTracker.getMaxHotLoadedRadius() != SimViewDistances.blocksToSections(maxHotLoadedRadius)) {
+      chunkTracker.setMaxHotLoadedRadius(SimViewDistances.blocksToSections(maxHotLoadedRadius));
     }
   }
 
-  private static void setEntityViewRadiusBlocks(EntityViewer entityViewer, int viewRadiusChunks) {
-    int viewRadiusBlocks = viewRadiusBlocks(viewRadiusChunks);
+  private static void setEntityViewRadiusBlocks(EntityViewer entityViewer, int distanceBlocks) {
+    int viewRadiusBlocks = viewRadiusBlocks(distanceBlocks);
     if (entityViewer.viewRadiusBlocks != viewRadiusBlocks) {
       entityViewer.viewRadiusBlocks = viewRadiusBlocks;
     }
@@ -232,19 +234,18 @@ public final class SimViewTuningSystem extends EntityTickingSystem<EntityStore> 
     }
   }
 
-  private static int viewRadiusBlocks(int viewRadiusChunks) {
-    long viewRadiusBlocks = (long) Math.max(0, viewRadiusChunks) * SimViewConfig.CHUNK_SIZE_BLOCKS;
-    return viewRadiusBlocks > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) viewRadiusBlocks;
+  private static int viewRadiusBlocks(int distanceBlocks) {
+    return Math.max(0, distanceBlocks);
   }
 
   private boolean advertiseViewDistance(
-      PlayerRef playerRef, PlayerTuningState tuningState, int viewRadiusChunks) {
+      PlayerRef playerRef, PlayerTuningState tuningState, int distanceBlocks) {
     if (!playerRef.isValid()) {
       unload(playerRef);
       return false;
     }
 
-    int viewRadiusBlocks = viewRadiusBlocks(viewRadiusChunks);
+    int viewRadiusBlocks = viewRadiusBlocks(distanceBlocks);
     if (tuningState != null && tuningState.advertisedViewDistanceBlocks == viewRadiusBlocks) {
       return false;
     }
@@ -273,8 +274,8 @@ public final class SimViewTuningSystem extends EntityTickingSystem<EntityStore> 
           && world.getWorldConfig().getUuid().equals(playerRef.getWorldUuid())) {
         originalSettings.restore(chunkTracker);
         modified = false;
-        setEntityViewRadiusBlocks(entityViewer, player.getViewRadius());
-        playerRef.getPacketHandler().writeNoCache(new ViewRadius(viewRadiusBlocks(player.getViewRadius())));
+        setEntityViewRadiusBlocks(entityViewer, SimViewDistances.sectionsToBlocks(player.getViewRadius()));
+        playerRef.getPacketHandler().writeNoCache(new ViewRadius(viewRadiusBlocks(SimViewDistances.sectionsToBlocks(player.getViewRadius()))));
       }
     }
   }
