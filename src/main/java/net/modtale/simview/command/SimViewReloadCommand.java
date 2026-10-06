@@ -28,7 +28,13 @@ public final class SimViewReloadCommand extends AbstractPlayerCommand {
       Ref<EntityStore> ref,
       PlayerRef playerRef,
       World world) {
-    SimViewConfig config = distanceService.reload();
+    SimViewConfig config;
+    try {
+      config = distanceService.reload();
+    } catch (IllegalStateException exception) {
+      commandContext.sendMessage(Message.raw("Unable to reload SimView. The previous configuration remains active.").color("red"));
+      return;
+    }
     commandContext.sendMessage(
         Message.raw(
                 "SimView reloaded: configured-simulation-distance-chunks="

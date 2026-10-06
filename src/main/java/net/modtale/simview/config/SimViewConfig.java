@@ -9,6 +9,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.AtomicMoveNotSupportedException;
 
 public record SimViewConfig(
     boolean enabled,
@@ -28,30 +30,50 @@ public record SimViewConfig(
     int adjustmentPassedChecksForDecrease,
     int simulationAdjustmentPassedChecksForIncrease,
     int simulationAdjustmentPassedChecksForDecrease,
-    long proactiveGlobalColdChunkCountTarget,
-    long proactiveGlobalTickingChunkCountTarget,
+    long proactiveGlobalColdSectionCountTarget,
+    long proactiveGlobalTickingSectionCountTarget,
     double reactiveIncreaseMsptThreshold,
     double reactiveDecreaseMsptThreshold,
     int reactiveMsptCollectionPeriodTicks,
     boolean reactiveUseMsptPrediction,
     int reactiveMsptPredictionHistoryMinutes,
-    boolean generateMissingColdChunks,
-    boolean cacheColdChunkPacketsInMemory,
-    int maxChunkSendsPerSecond,
-    int maxChunkSendsPerTick,
-    int maxColdChunkLoadsInFlight,
+    int maxSectionSendsPerSecond,
+    int maxSectionSendsPerTick,
     boolean despawnEntitiesInColdChunks,
     double speedingNotSendBlocksPerTick,
-    int speedingChunkSendsPerSecond,
-    int speedingChunkSendsPerTick,
+    int speedingSectionSendsPerSecond,
+    int speedingSectionSendsPerTick,
     int speedingCooldownTicks) {
 
   public static final int CHUNK_SIZE_BLOCKS = 32;
   private static final String CONFIG_FILE = "simview.json";
   private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
+  public SimViewConfig {
+    targetViewDistanceChunks = boundedRadius(targetViewDistanceChunks);
+    targetSimulationDistanceChunks = targetSimulationDistanceChunks < 0 ? -1 : boundedRadius(targetSimulationDistanceChunks);
+    minimumTargetViewDistanceChunks = boundedRadius(minimumTargetViewDistanceChunks);
+    maximumTargetViewDistanceChunks = boundedRadius(maximumTargetViewDistanceChunks);
+    minimumTargetSimulationDistanceChunks = boundedRadius(minimumTargetSimulationDistanceChunks);
+    maximumTargetSimulationDistanceChunks = boundedRadius(maximumTargetSimulationDistanceChunks);
+    reactiveMsptCollectionPeriodTicks = Math.clamp(reactiveMsptCollectionPeriodTicks, 1, 6_000);
+    maxSectionSendsPerSecond = Math.clamp(maxSectionSendsPerSecond, 1, 10_000);
+    maxSectionSendsPerTick = Math.clamp(maxSectionSendsPerTick, 1, 128);
+    speedingSectionSendsPerSecond = Math.clamp(speedingSectionSendsPerSecond, 1, 10_000);
+    speedingSectionSendsPerTick = Math.clamp(speedingSectionSendsPerTick, 1, 128);
+    reactiveMsptPredictionHistoryMinutes = Math.clamp(reactiveMsptPredictionHistoryMinutes, 1, 1440);
+  }
+
+  private static int boundedRadius(int radius) {
+    return Math.clamp(radius, 0, 64);
+  }
+
   public static SimViewConfig defaults() {
     int runtimeHytaleViewDistance = Math.max(0, HytaleServer.get().getConfig().getMaxViewRadius());
+    return defaults(Math.min(runtimeHytaleViewDistance, com.hypixel.hytale.server.core.modules.entity.player.ChunkTracker.MAX_HOT_LOADED_RADIUS));
+  }
+
+  static SimViewConfig defaults(int runtimeHytaleViewDistance) {
     return new SimViewConfig(
         true,
         true,
@@ -77,11 +99,8 @@ public record SimViewConfig(
         1200,
         true,
         30,
-        true,
-        true,
         96,
         8,
-        64,
         true,
         1.2D,
         24,
@@ -90,7 +109,10 @@ public record SimViewConfig(
   }
 
   public static SimViewConfig load(Path dataDirectory) {
-    SimViewConfig defaults = defaults();
+    return load(dataDirectory, defaults());
+  }
+
+  static SimViewConfig load(Path dataDirectory, SimViewConfig defaults) {
     Path configDirectory = dataDirectory.resolve("config");
     Path configFile = configDirectory.resolve(CONFIG_FILE);
 
@@ -112,7 +134,17 @@ public record SimViewConfig(
     Path configFile = configDirectory.resolve(CONFIG_FILE);
     try {
       Files.createDirectories(configDirectory);
-      Files.writeString(configFile, renderJson(config), StandardCharsets.UTF_8);
+      Path temporary = Files.createTempFile(configDirectory, "simview-", ".tmp");
+      try {
+        Files.writeString(temporary, renderJson(config), StandardCharsets.UTF_8);
+        try {
+          Files.move(temporary, configFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (AtomicMoveNotSupportedException exception) {
+          Files.move(temporary, configFile, StandardCopyOption.REPLACE_EXISTING);
+        }
+      } finally {
+        Files.deleteIfExists(temporary);
+      }
     } catch (IOException exception) {
       throw new IllegalStateException("Unable to save SimView config to " + configFile, exception);
     }
@@ -238,8 +270,8 @@ public record SimViewConfig(
     adjustment.add("checks", adjustmentChecks);
 
     JsonObject adjustmentProactive = new JsonObject();
-    adjustmentProactive.addProperty("global-cold-chunk-count-target", config.proactiveGlobalColdChunkCountTarget());
-    adjustmentProactive.addProperty("global-ticking-chunk-count-target", config.proactiveGlobalTickingChunkCountTarget());
+    adjustmentProactive.addProperty("global-cold-section-count-target", config.proactiveGlobalColdSectionCountTarget());
+    adjustmentProactive.addProperty("global-ticking-section-count-target", config.proactiveGlobalTickingSectionCountTarget());
     adjustment.add("proactive", adjustmentProactive);
 
     JsonObject adjustmentReactive = new JsonObject();
@@ -252,31 +284,28 @@ public record SimViewConfig(
     root.add("auto-adjustment", adjustment);
 
     JsonObject streaming = new JsonObject();
-    streaming.addProperty("generate-missing", config.generateMissingColdChunks());
-    streaming.addProperty("cache-packets-in-memory", config.cacheColdChunkPacketsInMemory());
     streaming.addProperty("despawn-entities", config.despawnEntitiesInColdChunks());
 
     JsonObject streamingBudget = new JsonObject();
-    streamingBudget.addProperty("chunk-sends-per-second", config.maxChunkSendsPerSecond());
-    streamingBudget.addProperty("chunk-sends-per-tick", config.maxChunkSendsPerTick());
-    streamingBudget.addProperty("cold-chunk-loads-in-flight", config.maxColdChunkLoadsInFlight());
+    streamingBudget.addProperty("section-sends-per-second", config.maxSectionSendsPerSecond());
+    streamingBudget.addProperty("section-sends-per-tick", config.maxSectionSendsPerTick());
     streaming.add("budget", streamingBudget);
-    root.add("cold-chunk-streaming", streaming);
+    root.add("section-streaming", streaming);
 
     JsonObject speeding = new JsonObject();
     speeding.addProperty("not-send-blocks-per-tick", config.speedingNotSendBlocksPerTick());
     speeding.addProperty("cooldown-ticks", config.speedingCooldownTicks());
 
     JsonObject speedingBudget = new JsonObject();
-    speedingBudget.addProperty("chunk-sends-per-second", config.speedingChunkSendsPerSecond());
-    speedingBudget.addProperty("chunk-sends-per-tick", config.speedingChunkSendsPerTick());
+    speedingBudget.addProperty("section-sends-per-second", config.speedingSectionSendsPerSecond());
+    speedingBudget.addProperty("section-sends-per-tick", config.speedingSectionSendsPerTick());
     speeding.add("budget", speedingBudget);
     root.add("speeding-adjustments", speeding);
 
     return GSON.toJson(root);
   }
 
-  private static SimViewConfig fromJson(String json, SimViewConfig defaults) {
+  static SimViewConfig fromJson(String json, SimViewConfig defaults) {
     JsonObject root = JsonParser.parseString(json).getAsJsonObject();
 
     JsonObject core = objectAt(root, "core");
@@ -294,7 +323,7 @@ public record SimViewConfig(
     JsonObject adjustmentProactive = objectAt(adjustment, "proactive");
     JsonObject adjustmentReactive = objectAt(adjustment, "reactive");
 
-    JsonObject streaming = objectAt(root, "cold-chunk-streaming");
+    JsonObject streaming = objectAt(root, "section-streaming");
     JsonObject streamingBudget = objectAt(streaming, "budget");
 
     JsonObject speeding = objectAt(root, "speeding-adjustments");
@@ -345,22 +374,19 @@ public record SimViewConfig(
         adjustmentPassedChecksForDecrease,
         simulationAdjustmentPassedChecksForIncrease,
         simulationAdjustmentPassedChecksForDecrease,
-        nonNegativeLong(longAt(adjustmentProactive, "global-cold-chunk-count-target", defaults.proactiveGlobalColdChunkCountTarget())),
-        nonNegativeLong(longAt(adjustmentProactive, "global-ticking-chunk-count-target", defaults.proactiveGlobalTickingChunkCountTarget())),
+        nonNegativeLong(longAt(adjustmentProactive, "global-cold-section-count-target", defaults.proactiveGlobalColdSectionCountTarget())),
+        nonNegativeLong(longAt(adjustmentProactive, "global-ticking-section-count-target", defaults.proactiveGlobalTickingSectionCountTarget())),
         nonNegativeDouble(doubleAt(adjustmentReactive, "increase-mspt-threshold", defaults.reactiveIncreaseMsptThreshold())),
         nonNegativeDouble(doubleAt(adjustmentReactive, "decrease-mspt-threshold", defaults.reactiveDecreaseMsptThreshold())),
         positiveInt(intAt(adjustmentReactive, "mspt-collection-period-ticks", defaults.reactiveMsptCollectionPeriodTicks())),
         boolAt(adjustmentReactive, "use-mspt-prediction", defaults.reactiveUseMsptPrediction()),
         positiveInt(intAt(adjustmentReactive, "mspt-prediction-history-minutes", defaults.reactiveMsptPredictionHistoryMinutes())),
-        boolAt(streaming, "generate-missing", defaults.generateMissingColdChunks()),
-        boolAt(streaming, "cache-packets-in-memory", defaults.cacheColdChunkPacketsInMemory()),
-        positiveInt(intAt(streamingBudget, "chunk-sends-per-second", defaults.maxChunkSendsPerSecond())),
-        positiveInt(intAt(streamingBudget, "chunk-sends-per-tick", defaults.maxChunkSendsPerTick())),
-        positiveInt(intAt(streamingBudget, "cold-chunk-loads-in-flight", defaults.maxColdChunkLoadsInFlight())),
+        positiveInt(intAt(streamingBudget, "section-sends-per-second", defaults.maxSectionSendsPerSecond())),
+        positiveInt(intAt(streamingBudget, "section-sends-per-tick", defaults.maxSectionSendsPerTick())),
         boolAt(streaming, "despawn-entities", defaults.despawnEntitiesInColdChunks()),
         nonNegativeDouble(doubleAt(speeding, "not-send-blocks-per-tick", defaults.speedingNotSendBlocksPerTick())),
-        positiveInt(intAt(speedingBudget, "chunk-sends-per-second", defaults.speedingChunkSendsPerSecond())),
-        positiveInt(intAt(speedingBudget, "chunk-sends-per-tick", defaults.speedingChunkSendsPerTick())),
+        positiveInt(intAt(speedingBudget, "section-sends-per-second", defaults.speedingSectionSendsPerSecond())),
+        positiveInt(intAt(speedingBudget, "section-sends-per-tick", defaults.speedingSectionSendsPerTick())),
         nonNegativeInt(intAt(speeding, "cooldown-ticks", defaults.speedingCooldownTicks())));
   }
 
@@ -420,7 +446,8 @@ public record SimViewConfig(
       return fallback;
     }
     try {
-      return parent.get(key).getAsDouble();
+      double value = parent.get(key).getAsDouble();
+      return Double.isFinite(value) ? value : fallback;
     } catch (Exception ignored) {
       return fallback;
     }

@@ -377,7 +377,7 @@ $C.@PageOverlay {
             LayoutMode: Left;
             Anchor: (Top: 3);
             Label {
-              Text: "Cold chunks (current/target):";
+              Text: "Cold section estimate / target:";
               Style: (FontSize: 12, TextColor: #ffffff(0.75));
             }
             Label #StatusColdChunks {
@@ -391,7 +391,7 @@ $C.@PageOverlay {
             LayoutMode: Left;
             Anchor: (Top: 3);
             Label {
-              Text: "Ticking chunks (current/target):";
+              Text: "Ticking section estimate / target:";
               Style: (FontSize: 12, TextColor: #ffffff(0.75));
             }
             Label #StatusTickingChunks {

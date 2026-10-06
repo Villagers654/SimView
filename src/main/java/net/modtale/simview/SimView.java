@@ -5,7 +5,6 @@ import net.modtale.simview.command.SimViewReloadCommand;
 import net.modtale.simview.config.SimViewConfig;
 import net.modtale.simview.config.SimViewConfigStore;
 import net.modtale.simview.permission.SimViewAccessControl;
-import net.modtale.simview.service.SimViewColdChunkStreamer;
 import net.modtale.simview.service.SimViewDistanceService;
 import net.modtale.simview.system.SimViewTuningSystem;
 import com.hypixel.hytale.logger.HytaleLogger;
@@ -26,7 +25,6 @@ public final class SimView extends JavaPlugin {
   private static final HytaleLogger LOGGER = HytaleLogger.forEnclosingClass();
 
   private SimViewDistanceService distanceService;
-  private SimViewColdChunkStreamer coldChunkStreamer;
   private SimViewTuningSystem tuningSystem;
   private final Set<UUID> hintedPlayers = ConcurrentHashMap.newKeySet();
 
@@ -42,11 +40,10 @@ public final class SimView extends JavaPlugin {
     SimViewConfigStore configStore = new SimViewConfigStore(configRoot);
 
     distanceService = new SimViewDistanceService(configStore);
-    coldChunkStreamer = new SimViewColdChunkStreamer();
     distanceService.applyServerViewDistanceCap();
 
     SimViewConfig config = distanceService.current();
-    tuningSystem = new SimViewTuningSystem(distanceService, coldChunkStreamer);
+    tuningSystem = new SimViewTuningSystem(distanceService);
     this.getEntityStoreRegistry().registerSystem(tuningSystem);
     this.getCommandRegistry().registerCommand(new SimViewGuiCommand(distanceService));
     this.getCommandRegistry().registerCommand(new SimViewReloadCommand(distanceService));
@@ -73,10 +70,10 @@ public final class SimView extends JavaPlugin {
       distanceService.restoreHytaleViewDistanceCap();
     }
 
-    if (coldChunkStreamer != null) {
-      coldChunkStreamer.unloadAll();
-      coldChunkStreamer.close();
+    if (tuningSystem != null) {
+      tuningSystem.restoreAll();
     }
+
     hintedPlayers.clear();
 
     super.shutdown();
@@ -109,6 +106,9 @@ public final class SimView extends JavaPlugin {
 
   private void handleRemovedPlayerFromWorld(RemovedPlayerFromWorldEvent event) {
     PlayerRef playerRef = event.getHolder().getComponent(PlayerRef.getComponentType());
+    if (playerRef != null && tuningSystem != null) {
+      tuningSystem.restoreBeforeTransfer(playerRef);
+    }
     cleanupPlayer(playerRef);
   }
 
@@ -121,9 +121,6 @@ public final class SimView extends JavaPlugin {
       return;
     }
 
-    if (coldChunkStreamer != null) {
-      coldChunkStreamer.unload(playerRef);
-    }
     if (tuningSystem != null) {
       tuningSystem.unload(playerRef);
     }
@@ -131,6 +128,7 @@ public final class SimView extends JavaPlugin {
     UUID playerUuid = playerRef.getUuid();
     if (playerUuid != null) {
       hintedPlayers.remove(playerUuid);
+      if (distanceService != null) { distanceService.removePlayer(playerUuid); }
     }
   }
 

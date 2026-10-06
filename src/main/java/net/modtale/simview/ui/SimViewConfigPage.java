@@ -2,6 +2,7 @@ package net.modtale.simview.ui;
 
 import net.modtale.simview.config.SimViewAdjustmentMode;
 import net.modtale.simview.config.SimViewConfig;
+import net.modtale.simview.permission.SimViewAccessControl;
 import net.modtale.simview.service.SimViewAutoTuner;
 import net.modtale.simview.service.SimViewDistanceService;
 import com.hypixel.hytale.codec.Codec;
@@ -71,7 +72,7 @@ public final class SimViewConfigPage
               "targetSimulationDistanceChunks",
               "Target: Simulation Distance (chunks)",
               SettingKind.INTEGER,
-              "Hot/ticking distance target; -1 keeps default Hytale cap"),
+              "Hot/ticking distance target; -1 uses the native hot radius"),
           new SettingDef(
               "adjustmentMode",
               "Auto Mode: View",
@@ -133,15 +134,15 @@ public final class SimViewConfigPage
               SettingKind.INTEGER,
               "Consecutive simulation decrease checks required"),
           new SettingDef(
-              "proactiveGlobalColdChunkCountTarget",
-              "Auto Proactive: Cold Chunk Target",
+              "proactiveGlobalColdSectionCountTarget",
+              "Auto Proactive: Section Target",
               SettingKind.LONG,
-              "Global cold chunk count target"),
+              "Global cold section estimate target"),
           new SettingDef(
-              "proactiveGlobalTickingChunkCountTarget",
-              "Auto Proactive: Ticking Chunk Target",
+              "proactiveGlobalTickingSectionCountTarget",
+              "Auto Proactive: Ticking Section Target",
               SettingKind.LONG,
-              "Global ticking chunk count target"),
+              "Global ticking section estimate target"),
           new SettingDef(
               "reactiveIncreaseMsptThreshold",
               "Auto Reactive: Increase MSPT",
@@ -168,50 +169,35 @@ public final class SimViewConfigPage
               SettingKind.INTEGER,
               "Minutes of history for MSPT prediction"),
           new SettingDef(
-              "generateMissingColdChunks",
-              "Cold Streaming: Generate Missing",
-              SettingKind.BOOLEAN,
-              "Generate missing chunks in the cold ring"),
-          new SettingDef(
-              "cacheColdChunkPacketsInMemory",
-              "Cold Streaming: Cache Packets",
-              SettingKind.BOOLEAN,
-              "Keep reusable cold chunk packets in memory; disable for zero packet-cache memory"),
-          new SettingDef(
-              "maxChunkSendsPerSecond",
-              "Cold Streaming: Sends Per Second",
+              "maxSectionSendsPerSecond",
+              "Section Streaming: Sends Per Second",
               SettingKind.INTEGER,
-              "Cold chunk packet budget per second"),
+              "Section budget per second"),
           new SettingDef(
-              "maxChunkSendsPerTick",
-              "Cold Streaming: Sends Per Tick",
+              "maxSectionSendsPerTick",
+              "Section Streaming: Sends Per Tick",
               SettingKind.INTEGER,
-              "Cold chunk packet budget per tick"),
-          new SettingDef(
-              "maxColdChunkLoadsInFlight",
-              "Cold Streaming: Loads In Flight",
-              SettingKind.INTEGER,
-              "Max asynchronous cold chunk loads"),
+              "Section budget per tick"),
           new SettingDef(
               "despawnEntitiesInColdChunks",
               "Cold Streaming: Despawn Entities",
               SettingKind.BOOLEAN,
-              "Despawn entities in cold chunks"),
+              "Despawn entities in sections"),
           new SettingDef(
               "speedingNotSendBlocksPerTick",
               "Speeding: Not-Send Blocks/Tick",
               SettingKind.DOUBLE,
               "Speed threshold before tighter budgets apply"),
           new SettingDef(
-              "speedingChunkSendsPerSecond",
+              "speedingSectionSendsPerSecond",
               "Speeding: Sends Per Second",
               SettingKind.INTEGER,
-              "Packet budget per second while speeding"),
+              "Section budget per second while speeding"),
           new SettingDef(
-              "speedingChunkSendsPerTick",
+              "speedingSectionSendsPerTick",
               "Speeding: Sends Per Tick",
               SettingKind.INTEGER,
-              "Packet budget per tick while speeding"),
+              "Section budget per tick while speeding"),
           new SettingDef(
               "speedingCooldownTicks",
               "Speeding: Cooldown Ticks",
@@ -290,6 +276,10 @@ public final class SimViewConfigPage
 
   @Override
   public void handleDataEvent(Ref<EntityStore> ref, Store<EntityStore> store, PageEventData data) {
+    if (!distanceService.current().guiEnabled() || !SimViewAccessControl.canUseGui(playerRef)) {
+      close();
+      return;
+    }
     super.handleDataEvent(ref, store, data);
 
     if (data.searchQuery != null) {
@@ -349,7 +339,16 @@ public final class SimViewConfigPage
         updateDirtyUiState();
         return;
       }
-      case ACTION_APPLY -> changed = applyPending(selectedSetting.get());
+      case ACTION_APPLY -> {
+        try {
+          synchronized (distanceService) {
+            changed = applyPending(selectedSetting.get());
+          }
+        } catch (IllegalStateException exception) {
+          feedback = "Unable to save settings. Check the server configuration directory.";
+          playerRef.sendMessage(Message.raw(feedback).color("red"));
+        }
+      }
       default -> {
         return;
       }
@@ -457,12 +456,12 @@ public final class SimViewConfigPage
     commandBuilder.set("#StatusMspt.Text", String.format(Locale.ROOT, "%.2f", autoTuneSnapshot.mspt()));
     commandBuilder.set(
         "#StatusColdChunks.Text",
-        autoTuneSnapshot.estimatedColdChunks() + " / " + autoTuneSnapshot.proactiveColdChunkTarget());
+        autoTuneSnapshot.estimatedColdSections() + " / " + autoTuneSnapshot.proactiveColdSectionTarget());
     commandBuilder.set(
         "#StatusTickingChunks.Text",
-        autoTuneSnapshot.estimatedTickingChunks()
+        autoTuneSnapshot.estimatedTickingSections()
             + " / "
-            + autoTuneSnapshot.proactiveTickingChunkTarget());
+            + autoTuneSnapshot.proactiveTickingSectionTarget());
     commandBuilder.set(
         "#StatusViewChecks.Text",
         "+"
@@ -592,8 +591,6 @@ public final class SimViewConfigPage
       case "guiEnabled" -> draft.guiEnabled = value;
       case "disableJoinHintMessage" -> draft.disableJoinHintMessage = value;
       case "reactiveUseMsptPrediction" -> draft.reactiveUseMsptPrediction = value;
-      case "generateMissingColdChunks" -> draft.generateMissingColdChunks = value;
-      case "cacheColdChunkPacketsInMemory" -> draft.cacheColdChunkPacketsInMemory = value;
       case "despawnEntitiesInColdChunks" -> draft.despawnEntitiesInColdChunks = value;
       default -> {
         feedback = "This setting cannot be edited as a boolean.";
@@ -671,10 +668,10 @@ public final class SimViewConfigPage
             draft.simulationAdjustmentPassedChecksForIncrease = positiveInt(rawValue);
         case "simulationAdjustmentPassedChecksForDecrease" ->
             draft.simulationAdjustmentPassedChecksForDecrease = positiveInt(rawValue);
-        case "proactiveGlobalColdChunkCountTarget" ->
-            draft.proactiveGlobalColdChunkCountTarget = nonNegativeLong(rawValue);
-        case "proactiveGlobalTickingChunkCountTarget" ->
-            draft.proactiveGlobalTickingChunkCountTarget = nonNegativeLong(rawValue);
+        case "proactiveGlobalColdSectionCountTarget" ->
+            draft.proactiveGlobalColdSectionCountTarget = nonNegativeLong(rawValue);
+        case "proactiveGlobalTickingSectionCountTarget" ->
+            draft.proactiveGlobalTickingSectionCountTarget = nonNegativeLong(rawValue);
         case "reactiveIncreaseMsptThreshold" ->
             draft.reactiveIncreaseMsptThreshold = nonNegativeDouble(rawValue);
         case "reactiveDecreaseMsptThreshold" ->
@@ -683,14 +680,13 @@ public final class SimViewConfigPage
             draft.reactiveMsptCollectionPeriodTicks = positiveInt(rawValue);
         case "reactiveMsptPredictionHistoryMinutes" ->
             draft.reactiveMsptPredictionHistoryMinutes = positiveInt(rawValue);
-        case "maxChunkSendsPerSecond" -> draft.maxChunkSendsPerSecond = positiveInt(rawValue);
-        case "maxChunkSendsPerTick" -> draft.maxChunkSendsPerTick = positiveInt(rawValue);
-        case "maxColdChunkLoadsInFlight" -> draft.maxColdChunkLoadsInFlight = positiveInt(rawValue);
+        case "maxSectionSendsPerSecond" -> draft.maxSectionSendsPerSecond = positiveInt(rawValue);
+        case "maxSectionSendsPerTick" -> draft.maxSectionSendsPerTick = positiveInt(rawValue);
         case "speedingNotSendBlocksPerTick" ->
             draft.speedingNotSendBlocksPerTick = nonNegativeDouble(rawValue);
-        case "speedingChunkSendsPerSecond" ->
-            draft.speedingChunkSendsPerSecond = positiveInt(rawValue);
-        case "speedingChunkSendsPerTick" -> draft.speedingChunkSendsPerTick = positiveInt(rawValue);
+        case "speedingSectionSendsPerSecond" ->
+            draft.speedingSectionSendsPerSecond = positiveInt(rawValue);
+        case "speedingSectionSendsPerTick" -> draft.speedingSectionSendsPerTick = positiveInt(rawValue);
         case "speedingCooldownTicks" -> draft.speedingCooldownTicks = nonNegativeInt(rawValue);
         default -> {
           feedback = "This setting is not edited with a text value.";
@@ -754,8 +750,8 @@ public final class SimViewConfigPage
 
   private static double nonNegativeDouble(String rawValue) {
     double parsed = Double.parseDouble(rawValue.trim());
-    if (parsed < 0D) {
-      throw new IllegalArgumentException("Value must be >= 0.");
+    if (!Double.isFinite(parsed) || parsed < 0D) {
+      throw new IllegalArgumentException("Value must be finite and >= 0.");
     }
     return parsed;
   }
@@ -796,10 +792,10 @@ public final class SimViewConfigPage
           Integer.toString(config.simulationAdjustmentPassedChecksForIncrease());
       case "simulationAdjustmentPassedChecksForDecrease" ->
           Integer.toString(config.simulationAdjustmentPassedChecksForDecrease());
-      case "proactiveGlobalColdChunkCountTarget" ->
-          Long.toString(config.proactiveGlobalColdChunkCountTarget());
-      case "proactiveGlobalTickingChunkCountTarget" ->
-          Long.toString(config.proactiveGlobalTickingChunkCountTarget());
+      case "proactiveGlobalColdSectionCountTarget" ->
+          Long.toString(config.proactiveGlobalColdSectionCountTarget());
+      case "proactiveGlobalTickingSectionCountTarget" ->
+          Long.toString(config.proactiveGlobalTickingSectionCountTarget());
       case "reactiveIncreaseMsptThreshold" ->
           Double.toString(config.reactiveIncreaseMsptThreshold());
       case "reactiveDecreaseMsptThreshold" ->
@@ -809,16 +805,13 @@ public final class SimViewConfigPage
       case "reactiveUseMsptPrediction" -> Boolean.toString(config.reactiveUseMsptPrediction());
       case "reactiveMsptPredictionHistoryMinutes" ->
           Integer.toString(config.reactiveMsptPredictionHistoryMinutes());
-      case "generateMissingColdChunks" -> Boolean.toString(config.generateMissingColdChunks());
-      case "cacheColdChunkPacketsInMemory" -> Boolean.toString(config.cacheColdChunkPacketsInMemory());
-      case "maxChunkSendsPerSecond" -> Integer.toString(config.maxChunkSendsPerSecond());
-      case "maxChunkSendsPerTick" -> Integer.toString(config.maxChunkSendsPerTick());
-      case "maxColdChunkLoadsInFlight" -> Integer.toString(config.maxColdChunkLoadsInFlight());
+      case "maxSectionSendsPerSecond" -> Integer.toString(config.maxSectionSendsPerSecond());
+      case "maxSectionSendsPerTick" -> Integer.toString(config.maxSectionSendsPerTick());
       case "despawnEntitiesInColdChunks" -> Boolean.toString(config.despawnEntitiesInColdChunks());
       case "speedingNotSendBlocksPerTick" ->
           Double.toString(config.speedingNotSendBlocksPerTick());
-      case "speedingChunkSendsPerSecond" -> Integer.toString(config.speedingChunkSendsPerSecond());
-      case "speedingChunkSendsPerTick" -> Integer.toString(config.speedingChunkSendsPerTick());
+      case "speedingSectionSendsPerSecond" -> Integer.toString(config.speedingSectionSendsPerSecond());
+      case "speedingSectionSendsPerTick" -> Integer.toString(config.speedingSectionSendsPerTick());
       case "speedingCooldownTicks" -> Integer.toString(config.speedingCooldownTicks());
       default -> "";
     };
@@ -834,8 +827,6 @@ public final class SimViewConfigPage
       case "guiEnabled" -> config.guiEnabled();
       case "disableJoinHintMessage" -> config.disableJoinHintMessage();
       case "reactiveUseMsptPrediction" -> config.reactiveUseMsptPrediction();
-      case "generateMissingColdChunks" -> config.generateMissingColdChunks();
-      case "cacheColdChunkPacketsInMemory" -> config.cacheColdChunkPacketsInMemory();
       case "despawnEntitiesInColdChunks" -> config.despawnEntitiesInColdChunks();
       default -> false;
     };
@@ -877,22 +868,19 @@ public final class SimViewConfigPage
     private int adjustmentPassedChecksForDecrease;
     private int simulationAdjustmentPassedChecksForIncrease;
     private int simulationAdjustmentPassedChecksForDecrease;
-    private long proactiveGlobalColdChunkCountTarget;
-    private long proactiveGlobalTickingChunkCountTarget;
+    private long proactiveGlobalColdSectionCountTarget;
+    private long proactiveGlobalTickingSectionCountTarget;
     private double reactiveIncreaseMsptThreshold;
     private double reactiveDecreaseMsptThreshold;
     private int reactiveMsptCollectionPeriodTicks;
     private boolean reactiveUseMsptPrediction;
     private int reactiveMsptPredictionHistoryMinutes;
-    private boolean generateMissingColdChunks;
-    private boolean cacheColdChunkPacketsInMemory;
-    private int maxChunkSendsPerSecond;
-    private int maxChunkSendsPerTick;
-    private int maxColdChunkLoadsInFlight;
+    private int maxSectionSendsPerSecond;
+    private int maxSectionSendsPerTick;
     private boolean despawnEntitiesInColdChunks;
     private double speedingNotSendBlocksPerTick;
-    private int speedingChunkSendsPerSecond;
-    private int speedingChunkSendsPerTick;
+    private int speedingSectionSendsPerSecond;
+    private int speedingSectionSendsPerTick;
     private int speedingCooldownTicks;
 
     private ConfigDraft(SimViewConfig config) {
@@ -915,22 +903,19 @@ public final class SimViewConfigPage
           config.simulationAdjustmentPassedChecksForIncrease();
       this.simulationAdjustmentPassedChecksForDecrease =
           config.simulationAdjustmentPassedChecksForDecrease();
-      this.proactiveGlobalColdChunkCountTarget = config.proactiveGlobalColdChunkCountTarget();
-      this.proactiveGlobalTickingChunkCountTarget = config.proactiveGlobalTickingChunkCountTarget();
+      this.proactiveGlobalColdSectionCountTarget = config.proactiveGlobalColdSectionCountTarget();
+      this.proactiveGlobalTickingSectionCountTarget = config.proactiveGlobalTickingSectionCountTarget();
       this.reactiveIncreaseMsptThreshold = config.reactiveIncreaseMsptThreshold();
       this.reactiveDecreaseMsptThreshold = config.reactiveDecreaseMsptThreshold();
       this.reactiveMsptCollectionPeriodTicks = config.reactiveMsptCollectionPeriodTicks();
       this.reactiveUseMsptPrediction = config.reactiveUseMsptPrediction();
       this.reactiveMsptPredictionHistoryMinutes = config.reactiveMsptPredictionHistoryMinutes();
-      this.generateMissingColdChunks = config.generateMissingColdChunks();
-      this.cacheColdChunkPacketsInMemory = config.cacheColdChunkPacketsInMemory();
-      this.maxChunkSendsPerSecond = config.maxChunkSendsPerSecond();
-      this.maxChunkSendsPerTick = config.maxChunkSendsPerTick();
-      this.maxColdChunkLoadsInFlight = config.maxColdChunkLoadsInFlight();
+      this.maxSectionSendsPerSecond = config.maxSectionSendsPerSecond();
+      this.maxSectionSendsPerTick = config.maxSectionSendsPerTick();
       this.despawnEntitiesInColdChunks = config.despawnEntitiesInColdChunks();
       this.speedingNotSendBlocksPerTick = config.speedingNotSendBlocksPerTick();
-      this.speedingChunkSendsPerSecond = config.speedingChunkSendsPerSecond();
-      this.speedingChunkSendsPerTick = config.speedingChunkSendsPerTick();
+      this.speedingSectionSendsPerSecond = config.speedingSectionSendsPerSecond();
+      this.speedingSectionSendsPerTick = config.speedingSectionSendsPerTick();
       this.speedingCooldownTicks = config.speedingCooldownTicks();
     }
 
@@ -953,22 +938,19 @@ public final class SimViewConfigPage
           adjustmentPassedChecksForDecrease,
           simulationAdjustmentPassedChecksForIncrease,
           simulationAdjustmentPassedChecksForDecrease,
-          proactiveGlobalColdChunkCountTarget,
-          proactiveGlobalTickingChunkCountTarget,
+          proactiveGlobalColdSectionCountTarget,
+          proactiveGlobalTickingSectionCountTarget,
           reactiveIncreaseMsptThreshold,
           reactiveDecreaseMsptThreshold,
           reactiveMsptCollectionPeriodTicks,
           reactiveUseMsptPrediction,
           reactiveMsptPredictionHistoryMinutes,
-          generateMissingColdChunks,
-          cacheColdChunkPacketsInMemory,
-          maxChunkSendsPerSecond,
-          maxChunkSendsPerTick,
-          maxColdChunkLoadsInFlight,
+          maxSectionSendsPerSecond,
+          maxSectionSendsPerTick,
           despawnEntitiesInColdChunks,
           speedingNotSendBlocksPerTick,
-          speedingChunkSendsPerSecond,
-          speedingChunkSendsPerTick,
+          speedingSectionSendsPerSecond,
+          speedingSectionSendsPerTick,
           speedingCooldownTicks);
     }
   }

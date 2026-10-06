@@ -19,7 +19,7 @@ public enum SimViewAdjustmentMode {
       return fallback;
     }
 
-    String normalized = value.trim().replace('-', '_').toUpperCase();
+    String normalized = value.trim().replace('-', '_').toUpperCase(java.util.Locale.ROOT);
     try {
       return SimViewAdjustmentMode.valueOf(normalized);
     } catch (IllegalArgumentException ignored) {

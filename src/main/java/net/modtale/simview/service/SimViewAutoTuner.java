@@ -18,7 +18,7 @@ public final class SimViewAutoTuner {
   private final SimViewMsptTracker msptTracker;
   private final ConcurrentHashMap<UUID, PlayerSample> playerSamples = new ConcurrentHashMap<>();
   private final ConcurrentHashMap<UUID, WorldTickSample> worldLastTick = new ConcurrentHashMap<>();
-  private final Deque<MsptChunkRecord> msptChunkHistory = new ArrayDeque<>();
+  private final Deque<MsptSectionRecord> msptChunkHistory = new ArrayDeque<>();
 
   private volatile int activeTargetViewDistanceChunks;
   private volatile int activeTargetSimulationDistanceChunks;
@@ -48,20 +48,20 @@ public final class SimViewAutoTuner {
   public synchronized void updateConfig(SimViewConfig config) {
     msptTracker.setCollectionPeriodTicks(config.reactiveMsptCollectionPeriodTicks());
 
+    if (config.simulationAdjustmentMode() == SimViewAdjustmentMode.OFF) {
+      activeTargetSimulationDistanceChunks =
+          clampSimulationTarget(config, config.targetSimulationDistanceChunks(), Integer.MAX_VALUE);
+      simulationConsecutiveIncreaseChecks = 0;
+      simulationConsecutiveDecreaseChecks = 0;
+      lastSimulationCandidate = AdjustmentCandidate.STAY;
+    }
+
     if (config.adjustmentMode() == SimViewAdjustmentMode.OFF) {
       activeTargetViewDistanceChunks =
           clampViewTarget(config, config.targetViewDistanceChunks(), activeTargetSimulationDistanceChunks);
       viewConsecutiveIncreaseChecks = 0;
       viewConsecutiveDecreaseChecks = 0;
       lastViewCandidate = AdjustmentCandidate.STAY;
-    }
-
-    if (config.simulationAdjustmentMode() == SimViewAdjustmentMode.OFF) {
-      activeTargetSimulationDistanceChunks =
-          clampSimulationTarget(config, config.targetSimulationDistanceChunks(), activeTargetViewDistanceChunks);
-      simulationConsecutiveIncreaseChecks = 0;
-      simulationConsecutiveDecreaseChecks = 0;
-      lastSimulationCandidate = AdjustmentCandidate.STAY;
     }
 
     normalizeTargets(config);
@@ -95,21 +95,22 @@ public final class SimViewAutoTuner {
     PlayerSample playerSample = playerSamples.get(playerUuid);
     if (playerSample == null) {
       PlayerSample newSample =
-          new PlayerSample(Math.max(0, requestedViewDistanceChunks), observedServerTicks);
+          new PlayerSample(Math.max(0, requestedViewDistanceChunks), observedServerTicks, resolvedWorldUuid);
       PlayerSample previousSample = playerSamples.putIfAbsent(playerUuid, newSample);
       playerSample = previousSample == null ? newSample : previousSample;
     }
     if (playerSample != null) {
+      playerSample.worldUuid = resolvedWorldUuid;
       playerSample.requestedViewDistanceChunks = Math.max(0, requestedViewDistanceChunks);
       playerSample.lastSeenServerTick = observedServerTicks;
     }
 
     WorldTickSample previousTick = worldLastTick.get(resolvedWorldUuid);
     if (previousTick == null) {
-      WorldTickSample newTick = new WorldTickSample(worldTick);
+      WorldTickSample newTick = new WorldTickSample(worldTick, observedServerTicks);
       previousTick = worldLastTick.putIfAbsent(resolvedWorldUuid, newTick);
       if (previousTick == null) {
-        return observeServerTick(deltaSeconds, config);
+        return observeServerTick(deltaSeconds, config, newTick.serverTickFor(worldTick));
       }
     }
 
@@ -117,23 +118,23 @@ public final class SimViewAutoTuner {
       return false;
     }
 
-    return observeServerTick(deltaSeconds, config);
+    return observeServerTick(deltaSeconds, config, previousTick.serverTickFor(worldTick));
   }
 
   public synchronized AutoTuneSnapshot snapshot(SimViewConfig config) {
-    long coldTarget = Math.max(0L, config.proactiveGlobalColdChunkCountTarget());
-    long tickingTarget = Math.max(0L, config.proactiveGlobalTickingChunkCountTarget());
-    long estimatedColdChunks =
-        estimateGlobalColdChunks(activeTargetViewDistanceChunks, activeTargetSimulationDistanceChunks);
-    long estimatedTickingChunks = estimateGlobalTickingChunks(activeTargetSimulationDistanceChunks);
+    long coldTarget = Math.max(0L, config.proactiveGlobalColdSectionCountTarget());
+    long tickingTarget = Math.max(0L, config.proactiveGlobalTickingSectionCountTarget());
+    long estimatedColdSections =
+        estimateGlobalColdSections(activeTargetViewDistanceChunks, activeTargetSimulationDistanceChunks);
+    long estimatedTickingSections = estimateGlobalTickingSections(activeTargetSimulationDistanceChunks);
 
     return new AutoTuneSnapshot(
         activeTargetViewDistanceChunks,
         activeTargetSimulationDistanceChunks,
         lastObservedMspt,
-        estimatedColdChunks,
+        estimatedColdSections,
         coldTarget,
-        estimatedTickingChunks,
+        estimatedTickingSections,
         tickingTarget,
         observedServerTicks,
         viewConsecutiveIncreaseChecks,
@@ -142,6 +143,13 @@ public final class SimViewAutoTuner {
         simulationConsecutiveDecreaseChecks,
         lastViewCandidate,
         lastSimulationCandidate);
+  }
+
+  public synchronized void removePlayer(UUID playerUuid) {
+    PlayerSample removed = playerSamples.remove(playerUuid);
+    if (removed != null) {
+      removeUnusedWorld(removed.worldUuid);
+    }
   }
 
   public synchronized void clear() {
@@ -163,19 +171,20 @@ public final class SimViewAutoTuner {
     lastObservedMspt = 50.0D;
   }
 
-  private boolean observeServerTick(float deltaSeconds, SimViewConfig config) {
+  private boolean observeServerTick(float deltaSeconds, SimViewConfig config, long serverTick) {
+    if (serverTick <= observedServerTicks) { return false; }
     double tickDurationMs = Math.max(0.0D, deltaSeconds) * 1000.0D;
     msptTracker.addTickSample(tickDurationMs);
     lastObservedMspt = msptTracker.currentMspt();
-    observedServerTicks++;
+    observedServerTicks = serverTick;
 
     if (observedServerTicks - lastStalePlayerPruneTick >= STALE_PLAYER_PRUNE_INTERVAL_TICKS) {
       lastStalePlayerPruneTick = observedServerTicks;
       pruneStalePlayers();
     }
 
-    if (config.adjustmentMode() == SimViewAdjustmentMode.OFF
-        && config.simulationAdjustmentMode() == SimViewAdjustmentMode.OFF) {
+    if (!config.enabled() || (config.adjustmentMode() == SimViewAdjustmentMode.OFF
+        && config.simulationAdjustmentMode() == SimViewAdjustmentMode.OFF)) {
       return false;
     }
 
@@ -197,11 +206,12 @@ public final class SimViewAutoTuner {
     int previousViewTarget = activeTargetViewDistanceChunks;
     int previousSimulationTarget = activeTargetSimulationDistanceChunks;
     long currentColdChunks =
-        estimateGlobalColdChunks(activeTargetViewDistanceChunks, activeTargetSimulationDistanceChunks);
-    long currentTickingChunks = estimateGlobalTickingChunks(activeTargetSimulationDistanceChunks);
+        estimateGlobalColdSections(activeTargetViewDistanceChunks, activeTargetSimulationDistanceChunks);
+    long currentTickingChunks = estimateGlobalTickingSections(activeTargetSimulationDistanceChunks);
     msptChunkHistory.addLast(
-        new MsptChunkRecord(System.currentTimeMillis(), lastObservedMspt, currentColdChunks, currentTickingChunks));
+        new MsptSectionRecord(System.currentTimeMillis(), lastObservedMspt, currentColdChunks, currentTickingChunks));
     purgeMsptHistory(config.reactiveMsptPredictionHistoryMinutes());
+    while (msptChunkHistory.size() > 10_000) { msptChunkHistory.removeFirst(); }
 
     AdjustmentCandidate viewCandidate = candidateForView(config, currentColdChunks);
     AdjustmentCandidate simulationCandidate = candidateForSimulation(config, currentTickingChunks);
@@ -223,10 +233,10 @@ public final class SimViewAutoTuner {
 
     AdjustmentCandidate candidate = AdjustmentCandidate.STAY;
     if (config.adjustmentMode().includesProactive()) {
-      candidate = candidate.strongest(proactiveViewCandidate(config, currentColdChunks));
+      candidate = proactiveViewCandidate(config, currentColdChunks);
     }
     if (config.adjustmentMode().includesReactive()) {
-      candidate = candidate.strongest(reactiveViewCandidate(config, currentColdChunks));
+      candidate = config.adjustmentMode().includesProactive() ? candidate.strongest(reactiveViewCandidate(config, currentColdChunks)) : reactiveViewCandidate(config, currentColdChunks);
     }
     return candidate;
   }
@@ -238,10 +248,10 @@ public final class SimViewAutoTuner {
 
     AdjustmentCandidate candidate = AdjustmentCandidate.STAY;
     if (config.simulationAdjustmentMode().includesProactive()) {
-      candidate = candidate.strongest(proactiveSimulationCandidate(config, currentTickingChunks));
+      candidate = proactiveSimulationCandidate(config, currentTickingChunks);
     }
     if (config.simulationAdjustmentMode().includesReactive()) {
-      candidate = candidate.strongest(reactiveSimulationCandidate(config, currentTickingChunks));
+      candidate = config.simulationAdjustmentMode().includesProactive() ? candidate.strongest(reactiveSimulationCandidate(config, currentTickingChunks)) : reactiveSimulationCandidate(config, currentTickingChunks);
     }
     return candidate;
   }
@@ -306,14 +316,14 @@ public final class SimViewAutoTuner {
   }
 
   private AdjustmentCandidate proactiveViewCandidate(SimViewConfig config, long currentColdChunks) {
-    long coldChunkTarget = Math.max(0L, config.proactiveGlobalColdChunkCountTarget());
+    long coldChunkTarget = Math.max(0L, config.proactiveGlobalColdSectionCountTarget());
     if (coldChunkTarget <= 0L) {
       return AdjustmentCandidate.STAY;
     }
 
     if (currentColdChunks < coldChunkTarget) {
       long increasedColdChunks =
-          estimateGlobalColdChunks(activeTargetViewDistanceChunks + 1, activeTargetSimulationDistanceChunks);
+          estimateGlobalColdSections(activeTargetViewDistanceChunks + 1, activeTargetSimulationDistanceChunks);
       if (increasedColdChunks <= coldChunkTarget) {
         return AdjustmentCandidate.INCREASE;
       }
@@ -334,9 +344,9 @@ public final class SimViewAutoTuner {
       long additionalColdChunks =
           Math.max(
               0L,
-              estimateGlobalColdChunks(activeTargetViewDistanceChunks + 1, activeTargetSimulationDistanceChunks)
+              estimateGlobalColdSections(activeTargetViewDistanceChunks + 1, activeTargetSimulationDistanceChunks)
                   - currentColdChunks);
-      double maxMsptPerChunk = maximumMsptPerColdChunk();
+      double maxMsptPerChunk = maximumMsptPerColdSection();
       if (mspt + (maxMsptPerChunk * additionalColdChunks) >= config.reactiveDecreaseMsptThreshold()) {
         return AdjustmentCandidate.STAY;
       }
@@ -351,13 +361,13 @@ public final class SimViewAutoTuner {
   }
 
   private AdjustmentCandidate proactiveSimulationCandidate(SimViewConfig config, long currentTickingChunks) {
-    long tickingChunkTarget = Math.max(0L, config.proactiveGlobalTickingChunkCountTarget());
+    long tickingChunkTarget = Math.max(0L, config.proactiveGlobalTickingSectionCountTarget());
     if (tickingChunkTarget <= 0L) {
       return AdjustmentCandidate.STAY;
     }
 
     if (currentTickingChunks < tickingChunkTarget) {
-      long increasedTickingChunks = estimateGlobalTickingChunks(activeTargetSimulationDistanceChunks + 1);
+      long increasedTickingChunks = estimateGlobalTickingSections(activeTargetSimulationDistanceChunks + 1);
       if (increasedTickingChunks <= tickingChunkTarget) {
         return AdjustmentCandidate.INCREASE;
       }
@@ -376,8 +386,8 @@ public final class SimViewAutoTuner {
         return AdjustmentCandidate.INCREASE;
       }
       long additionalTickingChunks =
-          Math.max(0L, estimateGlobalTickingChunks(activeTargetSimulationDistanceChunks + 1) - currentTickingChunks);
-      double maxMsptPerChunk = maximumMsptPerTickingChunk();
+          Math.max(0L, estimateGlobalTickingSections(activeTargetSimulationDistanceChunks + 1) - currentTickingChunks);
+      double maxMsptPerChunk = maximumMsptPerTickingSection();
       if (mspt + (maxMsptPerChunk * additionalTickingChunks) >= config.reactiveDecreaseMsptThreshold()) {
         return AdjustmentCandidate.STAY;
       }
@@ -391,7 +401,7 @@ public final class SimViewAutoTuner {
     return AdjustmentCandidate.STAY;
   }
 
-  private long estimateGlobalColdChunks(int targetViewDistanceChunks, int targetSimulationDistanceChunks) {
+  private long estimateGlobalColdSections(int targetViewDistanceChunks, int targetSimulationDistanceChunks) {
     int safeView = Math.max(0, targetViewDistanceChunks);
     int safeSimulation = Math.max(0, Math.min(targetSimulationDistanceChunks, safeView));
     long total = 0L;
@@ -400,43 +410,61 @@ public final class SimViewAutoTuner {
       int requested = sample.requestedViewDistanceChunks;
       int visible = Math.min(requested, safeView);
       int simulated = Math.min(visible, safeSimulation);
-      total += coldChunksForRadii(simulated, visible);
+      total += coldSectionsForRadii(simulated, visible);
     }
 
     return Math.max(0L, total);
   }
 
-  private long estimateGlobalTickingChunks(int targetSimulationDistanceChunks) {
+  private long estimateGlobalTickingSections(int targetSimulationDistanceChunks) {
     int safeSimulation = Math.max(0, targetSimulationDistanceChunks);
     long total = 0L;
 
     for (PlayerSample sample : playerSamples.values()) {
       int requested = sample.requestedViewDistanceChunks;
       int simulated = Math.min(requested, safeSimulation);
-      total += squareRadiusArea(simulated);
+      total += sphereRadiusArea(simulated);
     }
 
     return Math.max(0L, total);
   }
 
-  private static long coldChunksForRadii(int simulatedRadius, int visibleRadius) {
+  private static long coldSectionsForRadii(int simulatedRadius, int visibleRadius) {
     int safeSimulated = Math.max(0, Math.min(simulatedRadius, visibleRadius));
     int safeVisible = Math.max(0, visibleRadius);
-    long visibleArea = squareRadiusArea(safeVisible);
-    long simulatedArea = squareRadiusArea(safeSimulated);
+    long visibleArea = sphereRadiusArea(safeVisible);
+    long simulatedArea = sphereRadiusArea(safeSimulated);
     return Math.max(0L, visibleArea - simulatedArea);
   }
 
-  private static long squareRadiusArea(int radius) {
-    long diameter = (long) (Math.max(0, radius) * 2) + 1L;
-    return diameter * diameter;
+  private static final long[] SPHERE_SECTION_COUNTS = sphereSectionCounts();
+
+  static long sphereRadiusArea(int radius) {
+    return SPHERE_SECTION_COUNTS[Math.clamp(radius, 0, 64)];
   }
 
+  private static long[] sphereSectionCounts() {
+    long[] counts = new long[65];
+    for (int x = -64; x <= 64; x++) {
+      for (int y = -64; y <= 64; y++) {
+        for (int z = -64; z <= 64; z++) {
+          int squared = x * x + y * y + z * z;
+          if (squared <= 64 * 64) {
+            counts[(int) Math.ceil(Math.sqrt(squared))]++;
+          }
+        }
+      }
+    }
+    for (int radius = 1; radius < counts.length; radius++) {
+      counts[radius] += counts[radius - 1];
+    }
+    return counts;
+  }
   private void purgeMsptHistory(int historyMinutes) {
     long historyLengthMillis = Math.max(1L, historyMinutes) * 60_000L;
     long now = System.currentTimeMillis();
     while (!msptChunkHistory.isEmpty()) {
-      MsptChunkRecord oldest = msptChunkHistory.peekFirst();
+      MsptSectionRecord oldest = msptChunkHistory.peekFirst();
       if (oldest == null || now - oldest.timestampMillis <= historyLengthMillis) {
         break;
       }
@@ -444,9 +472,9 @@ public final class SimViewAutoTuner {
     }
   }
 
-  private double maximumMsptPerColdChunk() {
+  private double maximumMsptPerColdSection() {
     double max = 0.0D;
-    for (MsptChunkRecord record : msptChunkHistory) {
+    for (MsptSectionRecord record : msptChunkHistory) {
       if (record.coldChunks > 0L) {
         max = Math.max(max, record.mspt / (double) record.coldChunks);
       }
@@ -454,9 +482,9 @@ public final class SimViewAutoTuner {
     return max;
   }
 
-  private double maximumMsptPerTickingChunk() {
+  private double maximumMsptPerTickingSection() {
     double max = 0.0D;
-    for (MsptChunkRecord record : msptChunkHistory) {
+    for (MsptSectionRecord record : msptChunkHistory) {
       if (record.tickingChunks > 0L) {
         max = Math.max(max, record.mspt / (double) record.tickingChunks);
       }
@@ -468,7 +496,14 @@ public final class SimViewAutoTuner {
     for (Map.Entry<UUID, PlayerSample> entry : playerSamples.entrySet()) {
       if (observedServerTicks - entry.getValue().lastSeenServerTick > STALE_PLAYER_TICKS) {
         playerSamples.remove(entry.getKey(), entry.getValue());
+        removeUnusedWorld(entry.getValue().worldUuid);
       }
+    }
+  }
+
+  private void removeUnusedWorld(UUID worldUuid) {
+    if (playerSamples.values().stream().noneMatch(sample -> worldUuid.equals(sample.worldUuid))) {
+      worldLastTick.remove(worldUuid);
     }
   }
 
@@ -521,10 +556,12 @@ public final class SimViewAutoTuner {
   }
 
   private static final class PlayerSample {
+    private UUID worldUuid;
     private volatile int requestedViewDistanceChunks;
     private volatile long lastSeenServerTick;
 
-    private PlayerSample(int requestedViewDistanceChunks, long lastSeenServerTick) {
+    private PlayerSample(int requestedViewDistanceChunks, long lastSeenServerTick, UUID worldUuid) {
+      this.worldUuid = worldUuid;
       this.requestedViewDistanceChunks = requestedViewDistanceChunks;
       this.lastSeenServerTick = lastSeenServerTick;
     }
@@ -532,8 +569,16 @@ public final class SimViewAutoTuner {
 
   private static final class WorldTickSample {
     private final AtomicLong tick;
+    private final long initialWorldTick;
+    private final long initialServerTick;
 
-    private WorldTickSample(long tick) {
+    private long serverTickFor(long worldTick) {
+      return initialServerTick + Math.max(0L, worldTick - initialWorldTick) + 1L;
+    }
+
+    private WorldTickSample(long tick, long serverTick) {
+      this.initialWorldTick = tick;
+      this.initialServerTick = serverTick;
       this.tick = new AtomicLong(tick);
     }
 
@@ -550,16 +595,16 @@ public final class SimViewAutoTuner {
     }
   }
 
-  private record MsptChunkRecord(long timestampMillis, double mspt, long coldChunks, long tickingChunks) {}
+  private record MsptSectionRecord(long timestampMillis, double mspt, long coldChunks, long tickingChunks) {}
 
   public record AutoTuneSnapshot(
       int activeTargetViewDistanceChunks,
       int activeTargetSimulationDistanceChunks,
       double mspt,
-      long estimatedColdChunks,
-      long proactiveColdChunkTarget,
-      long estimatedTickingChunks,
-      long proactiveTickingChunkTarget,
+      long estimatedColdSections,
+      long proactiveColdSectionTarget,
+      long estimatedTickingSections,
+      long proactiveTickingSectionTarget,
       long observedTicks,
       int viewConsecutiveIncreaseChecks,
       int viewConsecutiveDecreaseChecks,

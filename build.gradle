@@ -5,20 +5,23 @@ plugins {
 group = 'club.simview'
 version = '0.1.0'
 
+def hytaleVersion = '0.7.0-pre.5.1'
+
 repositories {
     mavenCentral()
     maven {
-        name = 'hytale-release'
-        url = uri('https://maven.hytale.com/release')
+        name = 'hytale'
+        url = uri('https://maven.hytale.com/pre-release')
     }
-    maven {
-        name = 'hytalemodding-releases'
-        url = uri('https://maven.hytalemodding.dev/releases')
-    }
+
 }
 
 dependencies {
-    compileOnly 'com.hypixel.hytale:Server:0.5.3'
+    compileOnly "com.hypixel.hytale:Server:${hytaleVersion}"
+    testImplementation "com.hypixel.hytale:Server:${hytaleVersion}"
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.13.4'
+    testImplementation 'org.mockito:mockito-core:5.20.0'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     implementation 'com.google.code.gson:gson:2.11.0'
 }
 
@@ -37,4 +40,9 @@ jar {
         configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
     }
     exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
+}
+
+test {
+    useJUnitPlatform()
+    systemProperty 'java.util.logging.manager', 'com.hypixel.hytale.logger.backend.HytaleLogManager'
 }

@@ -7,23 +7,29 @@ public final class SimViewConfigStore {
 
   private final Path dataDirectory;
   private final AtomicReference<SimViewConfig> config;
+  private final SimViewConfig defaults;
 
   public SimViewConfigStore(Path dataDirectory) {
+    this(dataDirectory, SimViewConfig.defaults());
+  }
+
+  SimViewConfigStore(Path dataDirectory, SimViewConfig defaults) {
     this.dataDirectory = dataDirectory;
-    this.config = new AtomicReference<>(SimViewConfig.load(dataDirectory));
+    this.defaults = defaults;
+    this.config = new AtomicReference<>(SimViewConfig.load(dataDirectory, defaults));
   }
 
   public SimViewConfig current() {
     return config.get();
   }
 
-  public SimViewConfig reload() {
-    SimViewConfig loaded = SimViewConfig.load(dataDirectory);
+  public synchronized SimViewConfig reload() {
+    SimViewConfig loaded = SimViewConfig.load(dataDirectory, defaults);
     config.set(loaded);
     return loaded;
   }
 
-  public SimViewConfig saveAndReload(SimViewConfig updated) {
+  public synchronized SimViewConfig saveAndReload(SimViewConfig updated) {
     SimViewConfig.save(dataDirectory, updated);
     return reload();
   }

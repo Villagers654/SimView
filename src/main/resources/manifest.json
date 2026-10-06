@@ -9,7 +9,7 @@
     }
   ],
   "Website": "https://modtale.net/mod/simview",
-  "ServerVersion": "*",
+  "ServerVersion": "=0.7.0-pre.5.1",
   "Dependencies": {
     "Hytale:EntityModule": "*"
   },

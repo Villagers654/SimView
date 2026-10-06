@@ -13,13 +13,21 @@ public final class SimViewDistanceService {
   private final HytaleServerConfig serverConfig;
   private final int configuredHytaleViewDistanceChunks;
   private final SimViewAutoTuner autoTuner;
+  private final int configuredHytaleSimulationDistanceChunks;
   private final AtomicLong runtimeDistanceRevision = new AtomicLong();
+  private boolean closed;
 
   public SimViewDistanceService(SimViewConfigStore configStore) {
     this.configStore = configStore;
     this.serverConfig = HytaleServer.get().getConfig();
     this.configuredHytaleViewDistanceChunks = Math.max(0, serverConfig.getMaxViewRadius());
-    this.autoTuner = new SimViewAutoTuner(configuredHytaleViewDistanceChunks, configStore.current());
+    this.configuredHytaleSimulationDistanceChunks = Math.min(configuredHytaleViewDistanceChunks,
+        com.hypixel.hytale.server.core.modules.entity.player.ChunkTracker.MAX_HOT_LOADED_RADIUS);
+    this.autoTuner = new SimViewAutoTuner(configuredHytaleSimulationDistanceChunks, configStore.current());
+  }
+
+  public void removePlayer(UUID playerUuid) {
+    autoTuner.removePlayer(playerUuid);
   }
 
   public SimViewConfig current() {
@@ -27,7 +35,7 @@ public final class SimViewDistanceService {
   }
 
   public int hytaleSimulationDistanceChunks() {
-    return configuredHytaleViewDistanceChunks;
+    return configuredHytaleSimulationDistanceChunks;
   }
 
   public int activeTargetViewDistanceChunks() {
@@ -40,12 +48,14 @@ public final class SimViewDistanceService {
 
   public int activeSimulationDistanceCap() {
     SimViewConfig config = current();
+    if (!config.enabled()) { return configuredHytaleSimulationDistanceChunks; }
     return config.simulationDistanceCap(
-        configuredHytaleViewDistanceChunks, autoTuner.activeTargetSimulationDistanceChunks());
+        configuredHytaleSimulationDistanceChunks, autoTuner.activeTargetSimulationDistanceChunks());
   }
 
   public int activeViewDistanceCap() {
     SimViewConfig config = current();
+    if (!config.enabled()) { return configuredHytaleViewDistanceChunks; }
     return config.extendedViewDistanceCap(activeSimulationDistanceCap(), autoTuner.activeTargetViewDistanceChunks());
   }
 
@@ -57,29 +67,34 @@ public final class SimViewDistanceService {
     return runtimeDistanceRevision.get();
   }
 
-  public void observePlayerTick(
+  public synchronized void observePlayerTick(
       UUID playerUuid,
       UUID worldUuid,
       long worldTick,
       float deltaSeconds,
       int requestedViewDistanceChunks) {
+    if (closed) {
+      return;
+    }
     SimViewConfig config = current();
     if (autoTuner.observe(playerUuid, worldUuid, worldTick, deltaSeconds, config, requestedViewDistanceChunks)) {
       applyServerViewDistanceCap();
     }
   }
 
-  public void applyServerViewDistanceCap() {
-    setRuntimeMaxViewRadius(activeViewDistanceCap());
+  public synchronized void applyServerViewDistanceCap() {
+    if (closed) { return; }
+    setRuntimeMaxViewRadius(current().enabled() ? activeViewDistanceCap() : configuredHytaleViewDistanceChunks);
     runtimeDistanceRevision.incrementAndGet();
   }
 
-  public void restoreHytaleViewDistanceCap() {
+  public synchronized void restoreHytaleViewDistanceCap() {
+    closed = true;
     setRuntimeMaxViewRadius(configuredHytaleViewDistanceChunks);
     runtimeDistanceRevision.incrementAndGet();
   }
 
-  public SimViewConfig reload() {
+  public synchronized SimViewConfig reload() {
     SimViewConfig config = configStore.reload();
     autoTuner.clear();
     autoTuner.updateConfig(config);
@@ -87,7 +102,7 @@ public final class SimViewDistanceService {
     return config;
   }
 
-  public SimViewConfig saveAndReload(SimViewConfig updatedConfig) {
+  public synchronized SimViewConfig saveAndReload(SimViewConfig updatedConfig) {
     SimViewConfig config = configStore.saveAndReload(updatedConfig);
     autoTuner.clear();
     autoTuner.updateConfig(config);
