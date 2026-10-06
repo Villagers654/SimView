@@ -51,21 +51,47 @@ class ReleaseTests(unittest.TestCase):
              patch.object(release, 'artifact', return_value=(Path('jar'), 'digest')), \
              patch.object(release, 'modtale_request', side_effect=[
                  {'id': release.PROJECT, 'title': 'SimView', 'author': 'Villagers654'},
-                 {'versions': [{'versionNumber': '0.2.0'}]}, None
-             ]) as request:
+                 {'versions': [{'versionNumber': '0.2.0'}]}
+             ]) as request, \
+             patch.object(release, 'verify_modtale_file', side_effect=ValueError('different contents')):
             with self.assertRaisesRegex(ValueError, 'different contents'):
                 release.modtale('0.2.0')
-            self.assertEqual(request.call_count, 3)
+            self.assertEqual(request.call_count, 2)
 
     def test_modtale_retry_skips_identical_existing_file(self):
         with patch.dict(os.environ, {'MODTALE_API_KEY': 'test-placeholder'}), \
              patch.object(release, 'artifact', return_value=(Path('jar'), 'digest')), \
              patch.object(release, 'modtale_request', side_effect=[
                  {'id': release.PROJECT, 'title': 'SimView', 'author': 'Villagers654'},
-                 {'versions': [{'versionNumber': '0.2.0'}]}, {'versionNumber': '0.2.0'}
-             ]) as request:
+                 {'versions': [{'versionNumber': '0.2.0'}]}
+             ]) as request, \
+             patch.object(release, 'verify_modtale_file') as verify:
             release.modtale('0.2.0')
-            self.assertEqual(request.call_count, 3)
+            self.assertEqual(request.call_count, 2)
+            verify.assert_called_once()
+
+    def test_modtale_artifact_path_cannot_redirect_verification(self):
+        item = {'gameVersions': release.GAME_VERSIONS, 'channel': 'RELEASE',
+                'fileUrl': 'https://other.example/file.jar'}
+        with self.assertRaisesRegex(ValueError, 'artifact path'):
+            release.verify_modtale_file(item, Path('jar'), 'digest')
+
+    def test_modtale_verification_checks_bytes_without_api_key(self):
+        from unittest.mock import MagicMock
+        item = {'gameVersions': release.GAME_VERSIONS, 'channel': 'RELEASE',
+                'fileUrl': 'files/plugin/example.jar'}
+        path = MagicMock()
+        path.stat.return_value.st_size = 3
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = b'bad'
+        with patch.object(release.urllib.request, 'build_opener') as opener:
+            opener().open.return_value = response
+            with self.assertRaisesRegex(ValueError, 'different contents'):
+                release.verify_modtale_file(item, path, 'different-digest')
+            request = opener().open.call_args.args[0]
+            self.assertEqual('https://cdn.modtale.net/files/plugin/example.jar', request.full_url)
+            self.assertIsNone(request.get_header('X-modtale-key'))
+            response.__enter__().read.assert_called_once_with(4)
 
     def test_authenticated_redirects_are_refused(self):
         with self.assertRaisesRegex(RuntimeError, 'redirects are refused'):

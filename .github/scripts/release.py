@@ -144,10 +144,9 @@ def modtale(value):
     if project['id'] != PROJECT or project['title'] != 'SimView' or project['author'] != 'Villagers654':
         raise ValueError('Modtale project identity does not match')
     versions = modtale_request(route + '/versions', key)['versions']
-    if any(item['versionNumber'] == value for item in versions):
-        existing = modtale_request(route + f'/versions/hash/{digest}', key, allow_missing=True)
-        if existing is None or existing['versionNumber'] != value:
-            raise ValueError('Existing Modtale version has different contents')
+    existing = next((item for item in versions if item['versionNumber'] == value), None)
+    if existing is not None:
+        verify_modtale_file(existing, path, digest)
         print(f'Modtale {value} already contains this jar')
         return
     catalog = modtale_request('/meta/game-versions', key)
@@ -168,10 +167,28 @@ def modtale(value):
     parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{path.name}"\r\nContent-Type: application/java-archive\r\n\r\n'.encode())
     parts.extend([path.read_bytes(), f'\r\n--{boundary}--\r\n'.encode()])
     modtale_request(route + '/versions', key, b''.join(parts), f'multipart/form-data; boundary={boundary}')
-    uploaded = modtale_request(route + f'/versions/hash/{digest}', key)
-    if uploaded['versionNumber'] != value:
-        raise ValueError('Uploaded Modtale version could not be verified')
-    print(f'Published Modtale {value}: SHA256 {digest}')
+    versions = modtale_request(route + '/versions', key)['versions']
+    uploaded = next((item for item in versions if item['versionNumber'] == value), None)
+    if uploaded is None:
+        raise ValueError('Upload accepted but version is not visible; inspect Modtale before retrying')
+    verify_modtale_file(uploaded, path, digest)
+    print(f'Modtale stored {value}: SHA256 {digest}; public availability depends on its scan/review')
+
+
+def verify_modtale_file(item, path, digest):
+    if set(item['gameVersions']) != set(GAME_VERSIONS) or item['channel'] != 'RELEASE':
+        raise ValueError('Existing Modtale version has different compatibility or channel')
+    location = item['fileUrl']
+    if not re.fullmatch(r'files/plugin/[A-Za-z0-9_.-]+\.jar', location):
+        raise ValueError('Unexpected Modtale artifact path')
+    # The project hash endpoint currently omits hashes in its Mongo projection.
+    # Verify the stored bytes directly, with no API credential sent to the CDN.
+    request = urllib.request.Request('https://cdn.modtale.net/' + location,
+        headers={'User-Agent': 'SimView-release (+https://github.com/Villagers654/SimView)'})
+    with urllib.request.build_opener(NoRedirect).open(request, timeout=120) as response:
+        data = response.read(path.stat().st_size + 1)
+    if hashlib.sha256(data).hexdigest() != digest:
+        raise ValueError('Existing Modtale version has different contents')
 
 
 def metadata(value):
