@@ -2,8 +2,10 @@ package net.modtale.simview;
 
 import net.modtale.simview.command.SimViewGuiCommand;
 import net.modtale.simview.command.SimViewReloadCommand;
+import net.modtale.simview.command.SimViewStatusCommand;
 import net.modtale.simview.config.SimViewConfig;
 import net.modtale.simview.config.SimViewConfigStore;
+import net.modtale.simview.config.SimViewConfigDirectory;
 import net.modtale.simview.permission.SimViewAccessControl;
 import net.modtale.simview.service.SimViewDistanceService;
 import net.modtale.simview.system.SimViewTuningSystem;
@@ -34,9 +36,10 @@ public final class SimView extends JavaPlugin {
 
   @Override
   protected void setup() {
-    Path defaultDataDirectory = this.getDataDirectory();
-    Path parentDirectory = defaultDataDirectory.getParent();
-    Path configRoot = (parentDirectory == null ? defaultDataDirectory : parentDirectory).resolve("SimView");
+    Path configRoot = this.getDataDirectory();
+    if (SimViewConfigDirectory.migrateLegacy(configRoot)) {
+      LOGGER.atInfo().log("SimView copied existing config to the native plugin directory: %s", configRoot);
+    }
     SimViewConfigStore configStore = new SimViewConfigStore(configRoot);
 
     distanceService = new SimViewDistanceService(configStore);
@@ -47,6 +50,7 @@ public final class SimView extends JavaPlugin {
     this.getEntityStoreRegistry().registerSystem(tuningSystem);
     this.getCommandRegistry().registerCommand(new SimViewGuiCommand(distanceService));
     this.getCommandRegistry().registerCommand(new SimViewReloadCommand(distanceService));
+    this.getCommandRegistry().registerCommand(new SimViewStatusCommand(distanceService));
     this.getEventRegistry().registerGlobal(AddPlayerToWorldEvent.class, this::handleAddPlayerToWorld);
     this.getEventRegistry().registerGlobal(RemovedPlayerFromWorldEvent.class, this::handleRemovedPlayerFromWorld);
     this.getEventRegistry().registerGlobal(PlayerDisconnectEvent.class, this::handlePlayerDisconnect);
