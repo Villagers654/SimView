@@ -98,6 +98,12 @@ def github(value):
                      'including after client cancellation. Native remains the default streaming mode. '
                      'Validated by API-matrix builds and regression tests on Hytale 0.6.8 and 0.7.0-pre.5.1; '
                      'live server/client generation and visuals have not been verified.']
+        if value == '0.3.1':
+            notes = ['--notes', 'Fixes players being kicked with "Entity is not visible!" when hitting an entity (#1). '
+                     'The SimView tuning system now runs at the start of the tick, so the native entity tracker '
+                     'no longer waits on it and damage never ticks while entity visibility is being rebuilt. '
+                     'Validated by a scheduler-order regression test on Hytale 0.6.8 and 0.7.0-pre.5.1; '
+                     'not yet verified on a live server.']
         run('gh', 'release', 'create', tag, '--repo', repo, '--target', sha,
             '--draft', '--title', f'SimView {value}', *notes)
         release = find_release(repo, tag)

@@ -13,6 +13,7 @@ import com.hypixel.hytale.component.ComponentType;
 import com.hypixel.hytale.component.Store;
 import com.hypixel.hytale.component.dependency.Dependency;
 import com.hypixel.hytale.component.dependency.Order;
+import com.hypixel.hytale.component.dependency.OrderPriority;
 import com.hypixel.hytale.component.dependency.SystemDependency;
 import com.hypixel.hytale.component.query.Query;
 import com.hypixel.hytale.component.system.tick.EntityTickingSystem;
@@ -69,9 +70,12 @@ public final class SimViewTuningSystem extends EntityTickingSystem<EntityStore> 
 
   @Override
   public Set<Dependency<EntityStore>> getDependencies() {
+    // FURTHEST schedules this system at the start of the tick. With NORMAL priority the native trackers wait for
+    // this late-registered plugin system, letting unrelated systems (like damage) tick between ClearEntityViewers
+    // and CollectVisible while every entity viewer is empty, which kicks attacking players.
     return Set.of(
-        new SystemDependency<>(Order.BEFORE, PlayerChunkTrackerSystems.UpdateSystem.class),
-        new SystemDependency<>(Order.BEFORE, EntityTrackerSystems.CollectVisible.class));
+        new SystemDependency<>(Order.BEFORE, PlayerChunkTrackerSystems.UpdateSystem.class, OrderPriority.FURTHEST),
+        new SystemDependency<>(Order.BEFORE, EntityTrackerSystems.CollectVisible.class, OrderPriority.FURTHEST));
   }
 
   @Override
