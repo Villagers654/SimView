@@ -126,9 +126,12 @@ def github(value):
             if hashlib.sha256((Path(directory) / path.name).read_bytes()).hexdigest() != digest:
                 raise ValueError('Existing release asset has different contents')
     else:
-        run('gh', 'release', 'upload', tag, str(path), '--repo', repo)
+        run('gh', 'api', '--hostname', 'uploads.github.com', '--method', 'POST',
+            f"repos/{repo}/releases/{release['id']}/assets?name={path.name}",
+            '--header', 'Content-Type: application/java-archive', '--input', str(path))
     if release['draft']:
-        run('gh', 'release', 'edit', tag, '--repo', repo, '--draft=false')
+        run('gh', 'api', f"repos/{repo}/releases/{release['id']}",
+            '--method', 'PATCH', '--field', 'draft=false')
     if not assert_tag(repo, tag, sha):
         raise ValueError('Published release tag could not be verified')
     print(f'Published {tag}: SHA256 {digest}')

@@ -47,7 +47,7 @@ class ReleaseTests(unittest.TestCase):
             self.assertEqual(draft, release.find_release('owner/repo', 'v0.2.0'))
 
     def test_created_draft_is_used_without_another_lookup(self):
-        draft = {'tag_name': 'v0.3.1', 'draft': True, 'assets': []}
+        draft = {'id': 123, 'tag_name': 'v0.3.1', 'draft': True, 'assets': []}
         with patch.dict(os.environ, {'GITHUB_REPOSITORY': 'owner/repo', 'GITHUB_SHA': 'same'}), \
              patch.object(release, 'artifact', return_value=(Path('SimView-0.3.1.jar'), 'digest')), \
              patch.object(release, 'assert_tag', return_value=True), \
@@ -63,8 +63,11 @@ class ReleaseTests(unittest.TestCase):
             self.assertTrue(data['draft'])
             self.assertIn('Entity is not visible!', data['body'])
             self.assertEqual([
-                unittest.mock.call('gh', 'release', 'upload', 'v0.3.1', 'SimView-0.3.1.jar', '--repo', 'owner/repo'),
-                unittest.mock.call('gh', 'release', 'edit', 'v0.3.1', '--repo', 'owner/repo', '--draft=false')
+                unittest.mock.call('gh', 'api', '--hostname', 'uploads.github.com', '--method', 'POST',
+                    'repos/owner/repo/releases/123/assets?name=SimView-0.3.1.jar',
+                    '--header', 'Content-Type: application/java-archive', '--input', 'SimView-0.3.1.jar'),
+                unittest.mock.call('gh', 'api', 'repos/owner/repo/releases/123',
+                    '--method', 'PATCH', '--field', 'draft=false')
             ], mutate.call_args_list)
 
     def test_github_creation_posts_json_and_returns_the_response(self):
