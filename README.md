@@ -14,6 +14,19 @@ SimView also has 'auto mode', which dynamically tunes simulation & view distance
 
 Output jar is created in `build/libs/` with base name `SimView`.
 
+## Releases
+
+To release a new version, update `version` in `build.gradle` and `Version` in
+`src/main/resources/manifest.json` to the same `major.minor.patch` value and push
+to `main`. GitHub Actions tests both supported Hytale APIs, publishes the tested
+jar in a GitHub release, then uploads that same jar and changelog to Modtale using
+the repository's `MODTALE_API_KEY` secret. Modtale availability depends on its scan
+and review.
+
+If publication fails, rerun the failed jobs in **Build and release**. Existing tags
+and files are verified rather than replaced. **Retry Modtale publication** can
+retry only the Modtale upload after GitHub publication succeeds.
+
 ## Install
 
 1. Build the plugin jar.

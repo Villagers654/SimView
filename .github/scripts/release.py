@@ -42,8 +42,12 @@ def artifact(value):
     return path, hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def gh_json(endpoint):
-    result = subprocess.run(['gh', 'api', endpoint], text=True, capture_output=True)
+def gh_json(endpoint, data=None):
+    args = ['gh', 'api', endpoint]
+    if data is not None:
+        args.extend(['--method', 'POST', '--input', '-'])
+    result = subprocess.run(args, input=json.dumps(data) if data is not None else None,
+                            text=True, capture_output=True)
     if result.returncode:
         if 'HTTP 404' in result.stderr:
             return None
@@ -104,11 +108,15 @@ def github(value):
                      'no longer waits on it and damage never ticks while entity visibility is being rebuilt. '
                      'Validated by a scheduler-order regression test on Hytale 0.6.8 and 0.7.0-pre.5.1; '
                      'not yet verified on a live server.']
-        run('gh', 'release', 'create', tag, '--repo', repo, '--target', sha,
-            '--draft', '--title', f'SimView {value}', *notes)
-        release = find_release(repo, tag)
+        data = {'tag_name': tag, 'target_commitish': sha, 'draft': True,
+                'name': f'SimView {value}'}
+        if notes[0] == '--notes':
+            data['body'] = notes[1]
+        else:
+            data['generate_release_notes'] = True
+        release = gh_json(f'repos/{repo}/releases', data)
         if release is None:
-            raise RuntimeError('Created draft release could not be found')
+            raise RuntimeError('GitHub did not return the created draft release')
     assert_tag(repo, tag, sha)
     assets = [item for item in release['assets'] if item['name'] == path.name]
     if assets:

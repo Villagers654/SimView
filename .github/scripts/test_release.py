@@ -46,6 +46,36 @@ class ReleaseTests(unittest.TestCase):
         with patch.object(release, 'gh_json', side_effect=[None, [draft]]):
             self.assertEqual(draft, release.find_release('owner/repo', 'v0.2.0'))
 
+    def test_created_draft_is_used_without_another_lookup(self):
+        draft = {'tag_name': 'v0.3.1', 'draft': True, 'assets': []}
+        with patch.dict(os.environ, {'GITHUB_REPOSITORY': 'owner/repo', 'GITHUB_SHA': 'same'}), \
+             patch.object(release, 'artifact', return_value=(Path('SimView-0.3.1.jar'), 'digest')), \
+             patch.object(release, 'assert_tag', return_value=True), \
+             patch.object(release, 'find_release', side_effect=[None]) as lookup, \
+             patch.object(release, 'gh_json', return_value=draft) as request, \
+             patch.object(release, 'run') as mutate:
+            release.github('0.3.1')
+            lookup.assert_called_once_with('owner/repo', 'v0.3.1')
+            endpoint, data = request.call_args.args
+            self.assertEqual('repos/owner/repo/releases', endpoint)
+            self.assertEqual('v0.3.1', data['tag_name'])
+            self.assertEqual('same', data['target_commitish'])
+            self.assertTrue(data['draft'])
+            self.assertIn('Entity is not visible!', data['body'])
+            self.assertEqual([
+                unittest.mock.call('gh', 'release', 'upload', 'v0.3.1', 'SimView-0.3.1.jar', '--repo', 'owner/repo'),
+                unittest.mock.call('gh', 'release', 'edit', 'v0.3.1', '--repo', 'owner/repo', '--draft=false')
+            ], mutate.call_args_list)
+
+    def test_github_creation_posts_json_and_returns_the_response(self):
+        data = {'tag_name': 'v0.3.1', 'draft': True}
+        response = unittest.mock.Mock(returncode=0, stdout=json.dumps(data))
+        with patch.object(release.subprocess, 'run', return_value=response) as request:
+            self.assertEqual(data, release.gh_json('repos/owner/repo/releases', data))
+            self.assertEqual(['gh', 'api', 'repos/owner/repo/releases', '--method', 'POST', '--input', '-'],
+                             request.call_args.args[0])
+            self.assertEqual(data, json.loads(request.call_args.kwargs['input']))
+
     def test_modtale_retry_refuses_different_existing_file(self):
         with patch.dict(os.environ, {'MODTALE_API_KEY': 'test-placeholder'}), \
              patch.object(release, 'artifact', return_value=(Path('jar'), 'digest')), \
